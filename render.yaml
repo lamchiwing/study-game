@@ -1,35 +1,25 @@
 services:
-- type: web
-name: game-backend
-rootDir: apps/backend
-env: node
-plan: free
-buildCommand: "npm ci && npm run build"
-startCommand: "npm run start"
-envVars:
-- key: NODE_ENV
-value: production
-- key: FRONTEND_ORIGIN
-value: "*" # 上線後改成你的前端 URL
-# - key: DATABASE_URL
-# fromDatabase:
-# name: game-db
-# property: connectionString
-healthCheckPath: /healthz
-autoDeploy: true
+  - type: web
+    name: game-backend
+    rootDir: apps/backend
+    env: node
+    plan: free
+    buildCommand: "npm install && npm run build"
+    startCommand: "npm run start"
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: FRONTEND_ORIGIN
+        value: "*"
+    healthCheckPath: /healthz
+    autoDeploy: true
 
-- type: static
-name: game-frontend
-rootDir: apps/frontend
-buildCommand: "npm ci && npm run build"
-staticPublishPath: dist
-envVars:
-- key: VITE_API_BASE_URL
-value: "https://game-backend.onrender.com" # 首次部署後改成實際 URL
-autoDeploy: true
-
-# 可選：Postgres
-# databases:
-# - name: game-db
-# plan: free
-# ipAllowList: []
+  - type: static
+    name: game-frontend
+    rootDir: apps/frontend
+    buildCommand: "npm install && npm run build"
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_BASE_URL
+        value: "https://game-backend.onrender.com"
+    autoDeploy: true
