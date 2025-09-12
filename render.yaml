@@ -14,12 +14,12 @@ services:
     healthCheckPath: /healthz
     autoDeploy: true
 
-  - type: static
+  - type: static_site
     name: game-frontend
     rootDir: apps/frontend
     buildCommand: "npm install && npm run build"
     staticPublishPath: dist
     envVars:
       - key: VITE_API_BASE_URL
-        value: "https://game-backend.onrender.com"
+        value: "https://game-backend.onrender.com"  # 先占位，首次部署後再改成實際後端 URL
     autoDeploy: true
