@@ -1,9 +1,9 @@
 # tools/pdf_to_csv_multi.py
 # 用法：
-#  python tools/pdf_to_csv_multi.py --type mcq  input.pdf  content/questions/mcq.csv
-#  python tools/pdf_to_csv_multi.py --type tf   input.pdf  content/questions/tf.csv
-#  python tools/pdf_to_csv_multi.py --type fitb input.pdf  content/questions/fitb.csv
-import argparse, re, sys, fitz, pandas as pd
+#  python tools/pdf_to_csv_multi.py --type mcq  pdf/mcq.pdf  content/questions/mcq.csv
+#  python tools/pdf_to_csv_multi.py --type tf   pdf/tf.pdf   content/questions/tf.csv
+#  python tools/pdf_to_csv_multi.py --type fitb pdf/fitb.pdf content/questions/fitb.csv
+import argparse, re, fitz, pandas as pd
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--type", required=True, choices=["mcq","tf","fitb"], help="題型：mcq多選、tf是非、fitb填充")
@@ -20,7 +20,8 @@ qid_re = re.compile(r"^\s*(\d+)[\.\)．]\s*(.+)$")
 opt_re = re.compile(r"^\s*([A-DＡ-Ｄ])[\.\)\：:．]\s*(.+)$")
 ans_re = re.compile(r"(?:答案|Answer)\s*[:：]\s*([A-DＡ-ＤTF真對错错對是非TrueFalse]+)", re.I)
 
-def norm_choice(c): return {"Ａ":"A","Ｂ":"B","Ｃ":"C","Ｄ":"D","真":"T","對":"T","错":"F","錯":"F","是":"T","非":"F"}.get(c, c.upper())
+def norm_choice(c): 
+    return {"Ａ":"A","Ｂ":"B","Ｃ":"C","Ｄ":"D","真":"T","對":"T","错":"F","錯":"F","是":"T","非":"F"}.get(c, c.upper())
 
 rows, qbuf, opts = [], None, {}
 
@@ -41,7 +42,6 @@ def flush():
         "answer": "", "explain": ""
     }
     if args.type == "mcq":
-        # 至少 A/B
         if len([k for k in opts.keys() if k in ["A","B","C","D"]]) < 2:
             qbuf, opts = None, {}
             return
@@ -51,15 +51,12 @@ def flush():
             "answer": opts.get("_ans","").upper()[:1]
         })
     elif args.type == "tf":
-        # 用固定 True/False；答案轉 T/F
-        row["choiceA"] = "True"
-        row["choiceB"] = "False"
-        a = opts.get("_ans","").strip().lower()
+        row["choiceA"], row["choiceB"] = "True", "False"
+        a = (opts.get("_ans","")+"").strip().lower()
         if a in ["t","true","是","對","真"]: row["answer"] = "T"
         elif a in ["f","false","否","錯","假"]: row["answer"] = "F"
     elif args.type == "fitb":
-        # 答案以原文保存（可用 | 分隔多個正確答案）
-        row["answer"] = opts.get("_ans","").strip()
+        row["answer"] = (opts.get("_ans","")+"").strip()  # 可用 | 分隔多個正解
     rows.append(row)
     qbuf, opts = None, {}
 
@@ -70,24 +67,20 @@ for page in doc:
         line = raw.strip()
         if not line: 
             continue
-        # 新題
         m_q = qid_re.match(line)
         if m_q:
             flush()
             qbuf = m_q.group(2)
             continue
-        # 選項（只對 mcq 生效）
         if args.type == "mcq":
             m_o = opt_re.match(line)
             if m_o:
                 opts[norm_choice(m_o.group(1))] = m_o.group(2).strip()
                 continue
-        # 答案
         m_a = ans_re.search(line)
         if m_a:
             opts["_ans"] = norm_choice(m_a.group(1))
             continue
-        # 補題幹
         if qbuf is not None:
             qbuf += " " + line
 
