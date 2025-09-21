@@ -1,13 +1,12 @@
 // tools/build-curriculum-multi.mjs
-// 將 content/questions/*.csv 轉成 apps/backend/content/curriculum.json
+// 將 content/questions/*.csv 合併成 apps/backend/content/curriculum.json（純文字題庫）
 import fs from 'fs';
 import path from 'path';
 import { parse } from 'csv-parse/sync';
 
 const QDIR = 'content/questions';
 const OUT = 'apps/backend/content/curriculum.json';
-
-fs.mkdirSync(path.dirname(OUT), { recursive: true });
+fs.mkdirSync('apps/backend/content', { recursive: true });
 
 const files = fs.readdirSync(QDIR).filter(f => f.endsWith('.csv'));
 const all = [];
@@ -31,7 +30,6 @@ for (const f of files) {
       choiceD: r.choiceD || "",
       answer: (r.answer || "").trim(),
       explain: r.explain || ""
-      // 無 image 欄位（純文字）
     });
   }
 }
