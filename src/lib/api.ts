@@ -1,5 +1,6 @@
 const API = import.meta.env.VITE_API_BASE || "https://study-game-back.onrender.com";
 
+
 export type Question = {
   id: string;
   subject: string;
@@ -8,10 +9,10 @@ export type Question = {
   LO: string;
   diff: string;
   question: string;
-  image: string;
   choices: string[];
   answer: string;
   explain: string;
+  image?: string; // ← 可選
 };
 
 export type Pack = { slug: string; count?: number | null };
