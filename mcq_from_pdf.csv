@@ -1,0 +1,6 @@
+﻿id,type,subject,grade,topic,lo,diff,question,choiceA,choiceB,choiceC,choiceD,answer,explain
+Q00001,mcq,chinese,1,字詞辨析,chi-words,1,1. 假__裏，我和媽媽到圖書館借書。,白,目,日,,,
+Q00002,mcq,chinese,1,字詞辨析,chi-words,1,2. 哥哥最愛打__球。,藍,籃,檻,,,
+Q00003,mcq,chinese,1,字詞辨析,chi-words,1,3. 同學們都在討論__晚的電視劇。,昨,作,咋,,,
+Q00004,mcq,chinese,1,字詞辨析,chi-words,1,4. 中午，我__了一杯果汁。,渴,喝,吃,,,
+Q00005,mcq,chinese,1,字詞辨析,chi-words,1,5. 沙__是駱駝的故鄉。,漠,莫,模,,,
