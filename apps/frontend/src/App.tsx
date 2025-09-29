@@ -7,10 +7,12 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/packs" element={<Packs />} />
-        <Route path="/quiz" element={<Quiz />} />
-        <Route path="*" element={<Navigate to="/packs" replace />} />
+       <Route path="/" element={<Navigate to="/packs" replace />} />
+       <Route path="/packs" element={<Packs />} />
+       <Route path="/quiz" element={<Quiz />} />
+       <Route path="*" element={<Navigate to="/packs" replace />} />  
       </Routes>
+
     </BrowserRouter>
   );
 }
