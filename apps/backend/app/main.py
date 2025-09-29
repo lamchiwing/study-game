@@ -1,6 +1,7 @@
-# app/main.py
+# apps/backend/app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.models.schemas import Health, ScoreIn
 from app.routers import packs, questions
 import os
@@ -10,7 +11,11 @@ FRONT_ORIGINS = [
     "http://localhost:5173",
 ]
 
-app = FastAPI(title="Study Game API")
+# 👇 指定 JSONResponse with utf-8
+app = FastAPI(
+    title="Study Game API",
+    default_response_class=JSONResponse,
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,5 +34,4 @@ def ping():
 
 @app.post("/api/score")
 def save_score(payload: ScoreIn):
-    # Demo：實務上你可寫 DB。這裡直接返回文字。
     return {"status": "ok", "echo_score": payload.score}
