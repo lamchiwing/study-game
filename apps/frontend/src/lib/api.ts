@@ -1,5 +1,9 @@
-const API = import.meta.env.VITE_API_BASE || "https://study-game-back.onrender.com";
+const API =
+  (import.meta.env as any).VITE_API_BASE ||
+  (import.meta.env as any).VITE_API_BASE_URL ||
+  "";
 
+export type Pack = { slug: string; count?: number | null };
 export type Question = {
   id: string;
   subject: string;
@@ -11,13 +15,10 @@ export type Question = {
   choices: string[];
   answer: string;
   explain: string;
-  image: string; // ← 可選
 };
 
-export type Pack = { slug: string; count?: number | null };
-
 export async function fetchPacks(): Promise<Pack[]> {
-  const res = await fetch(`${API}/api/packs`, { credentials: "omit" });
+  const res = await fetch(`${API}/api/packs`);
   if (!res.ok) throw new Error("fetch packs failed");
   return res.json();
 }
