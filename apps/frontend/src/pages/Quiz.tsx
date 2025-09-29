@@ -70,8 +70,8 @@ export default function Quiz() {
         {current.choices.map((c, i) => {
           const isPicked = picked === i;
           const isRight = rightIndex === i;
-          const base = "const base = "w-full text-left p-4 rounded-xl border transition font-semibold text-lg";
-";
+          const base = "const base = "const base = "w-full text-left p-4 rounded-xl border transition font-semibold text-xl";
+
           const pickedClass = isPicked ? " bg-black/5" : "";
           const colorClass =
             picked != null
@@ -86,6 +86,8 @@ export default function Quiz() {
               key={i}
               onClick={() => choose(i)}
               className={`${base}${pickedClass} ${colorClass}`}
+              style={{ fontWeight: 600, fontSize: "18px", padding: "12px" }}  // ← inline style 分開寫
+  >
             >
               <span className="mr-2">{String.fromCharCode(65 + i)}.</span>
               <ColorText text={c} />
