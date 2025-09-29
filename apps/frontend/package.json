@@ -1,4 +1,13 @@
 {
+  "name": "study-game-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "preview": "vite preview"
+  },
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
@@ -11,12 +20,7 @@
     "vite": "^5.2.0",
     "@vitejs/plugin-react": "^4.2.0"
   },
-  "scripts": {
-    "build": "vite build",
-    "dev": "vite",
-    "preview": "vite preview"
-  },
   "engines": {
-  "node": "20.x"
+    "node": "20.x"
+  }
 }
-
