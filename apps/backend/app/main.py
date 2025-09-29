@@ -11,10 +11,12 @@ FRONT_ORIGINS = [
     "http://localhost:5173",
 ]
 
-# 👇 指定 JSONResponse with utf-8
+class UTF8JSONResponse(JSONResponse):
+    media_type = "application/json; charset=utf-8"
+
 app = FastAPI(
     title="Study Game API",
-    default_response_class=JSONResponse,
+    default_response_class=UTF8JSONResponse,  # 👈 重點
 )
 
 app.add_middleware(
