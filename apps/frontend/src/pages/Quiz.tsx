@@ -70,7 +70,8 @@ export default function Quiz() {
         {current.choices.map((c, i) => {
           const isPicked = picked === i;
           const isRight = rightIndex === i;
-          const base = "w-full text-left p-3 rounded-xl border transition";
+          const base = "const base = "w-full text-left p-4 rounded-xl border transition font-semibold text-lg";
+";
           const pickedClass = isPicked ? " bg-black/5" : "";
           const colorClass =
             picked != null
