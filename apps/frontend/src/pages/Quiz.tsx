@@ -1,3 +1,4 @@
+import React from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { fetchQuestions, type Question } from "../lib/api";
@@ -45,8 +46,17 @@ export default function Quiz() {
     const wrong = total - correct;
     return (
       <div className="p-6 max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold mb-2">完成！</h1>
-        <p className="mb-4">
+        <h1
+          style={{
+            fontSize: "clamp(22px, 3vw, 28px)",
+            fontWeight: 700,
+            lineHeight: 1.3,
+            marginBottom: 8,
+          }}
+        >
+          完成！
+        </h1>
+        <p style={{ marginBottom: 16 }}>
           總題數：{total}　✅ 正確：{correct}　❌ 錯誤：{wrong}
         </p>
         <a href="/packs" className="underline">
@@ -62,42 +72,79 @@ export default function Quiz() {
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <div className="mb-2 text-sm opacity-70">{slug}</div>
-      <h1 className="text-xl font-semibold mb-4">
+
+      {/* 題目：加大加粗，行距舒適 */}
+      <h1
+        style={{
+          fontSize: "clamp(22px, 3vw, 28px)",
+          fontWeight: 700,
+          lineHeight: 1.3,
+          marginBottom: 16,
+        }}
+      >
         Q{idx + 1}. <ColorText text={current.question} />
       </h1>
 
-      <div className="space-y-2">
+      {/* 選項清單：加大字體、擴大觸控區、按壓回饋 */}
+      <div style={{ display: "grid", gap: 12 }}>
         {current.choices.map((c, i) => {
           const isPicked = picked === i;
           const isRight = rightIndex === i;
-          const base = "const base = "const base = "w-full text-left p-4 rounded-xl border transition font-semibold text-xl";
 
-          const pickedClass = isPicked ? " bg-black/5" : "";
-          const colorClass =
-            picked != null
-              ? isRight
-                ? " text-green-600 border-green-600"
-                : isPicked
-                ? " text-red-600 border-red-600"
-                : ""
-              : "";
+          const baseStyle: React.CSSProperties = {
+            width: "100%",
+            textAlign: "left",
+            padding: "14px 16px",
+            borderRadius: 12,
+            border: "1px solid #ccc",
+            fontSize: "18px",
+            fontWeight: 600,
+            minHeight: 48, // 保證觸控高度
+            lineHeight: 1.3,
+            background: isPicked ? "rgba(0,0,0,0.05)" : "transparent",
+            transition:
+              "background 120ms, transform 80ms, border-color 120ms, color 120ms",
+          };
+
+          if (picked != null) {
+            if (isRight)
+              Object.assign(baseStyle, {
+                color: "#16a34a",
+                borderColor: "#16a34a",
+              }); // green-600
+            else if (isPicked)
+              Object.assign(baseStyle, {
+                color: "#dc2626",
+                borderColor: "#dc2626",
+              }); // red-600
+          }
+
           return (
             <button
               key={i}
               onClick={() => choose(i)}
-              className={`${base}${pickedClass} ${colorClass}`}
-              style={{ fontWeight: 600, fontSize: "18px", padding: "12px" }}  // ← inline style 分開寫
-  >
+              style={baseStyle}
+              onMouseDown={(e) => (e.currentTarget.style.transform = "scale(0.99)")}
+              onMouseUp={(e) => (e.currentTarget.style.transform = "")}
+              onTouchStart={(e) => (e.currentTarget.style.transform = "scale(0.99)")}
+              onTouchEnd={(e) => (e.currentTarget.style.transform = "")}
             >
-              <span className="mr-2">{String.fromCharCode(65 + i)}.</span>
+              <span style={{ marginRight: 8 }}>
+                {String.fromCharCode(65 + i)}.
+              </span>
               <ColorText text={c} />
             </button>
           );
         })}
       </div>
 
-      <div className="mt-4 flex items-center gap-3">
-        <button onClick={nextQ} className="px-4 py-2 rounded-xl border">
+      {/* 控制列 */}
+      <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 12 }}>
+        <button
+          onClick={nextQ}
+          className="px-4 py-2 rounded-xl border"
+          style={{ minHeight: 44 }}
+        >
           下一題
         </button>
         <div className="text-sm opacity-70">
@@ -105,6 +152,7 @@ export default function Quiz() {
         </div>
       </div>
 
+      {/* 解釋卡片 */}
       {picked != null && (
         <div className="mt-4 p-3 rounded-xl border">
           {picked === rightIndex ? (
