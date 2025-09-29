@@ -1,25 +1,14 @@
 services:
   - type: web
-    name: game-backend
-    rootDir: apps/backend
-    env: node
-    plan: free
-    buildCommand: "npm install"
-    startCommand: "npm run start"
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: FRONTEND_ORIGIN
-        value: "*"
-    healthCheckPath: /healthz
-    autoDeploy: true
-
-  - type: static_site
-    name: game-frontend
+    name: study-game-front
+    env: static
     rootDir: apps/frontend
-    buildCommand: "npm install && npm run build"
-    staticPublishPath: dist
+    buildCommand: npm ci && npm run build
+    staticPublishPath: apps/frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
-      - key: VITE_API_BASE_URL
-        value: "https://game-backend.onrender.com"   # 先佔位，部署後換成真實後端 URL
-    autoDeploy: true
+      - key: VITE_API_BASE
+        value: https://study-game-back.onrender.com
