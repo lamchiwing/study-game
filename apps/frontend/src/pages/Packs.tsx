@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { fetchPacks, type Pack } from "../lib/api";
+import { Link } from "react-router-dom";
 
 export default function Packs() {
   const [packs, setPacks] = useState<Pack[]>([]);
@@ -18,7 +19,9 @@ export default function Packs() {
               <div className="font-semibold">{p.slug}</div>
               <div className="text-sm opacity-70">題數：{p.count ?? "—"}</div>
             </div>
-            <a className="px-3 py-2 rounded-xl border" href={`/quiz?slug=${encodeURIComponent(p.slug)}`}>開始</a>
+            <Link className="px-3 py-2 rounded-xl border" to={`/quiz?slug=${encodeURIComponent(p.slug)}`}>
+              開始
+            </Link>
           </li>
         ))}
       </ul>
