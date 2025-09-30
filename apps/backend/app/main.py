@@ -1,56 +1,66 @@
 # apps/backend/app/main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
+from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from app.models.schemas import Health, ScoreIn
-from app.routers import packs, questions
+
+app = FastAPI()
+
+# ---- CORS：允許前端來源 ----
+allowlist = [
+    "https://study-game-front.onrender.com",
+    "http://localhost:5173",
+]
+frontend_origin = None
 import os
+if os.getenv("FRONTEND_ORIGIN"):
+    allowlist.append(os.getenv("FRONTEND_ORIGIN"))
 
-# ==== UTF-8 JSON（避免中文亂碼）====
-class UTF8JSONResponse(JSONResponse):
-    media_type = "application/json; charset=utf-8"
-
-# ==== App ====
-app = FastAPI(
-    title="Study Game API",
-    default_response_class=UTF8JSONResponse,
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowlist,
+    allow_credentials=False,   # 若未用 cookie，建議 False
+    allow_methods=["*"],
+    allow_headers=["*"],
+    max_age=86400,
 )
 
-# ==== CORS 設定 ====
-# 以環境變數切換「放寬/鎖回」模式
-ALLOW_ALL_CORS = os.getenv("ALLOW_ALL_CORS") == "1"
-FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "https://study-game-front.onrender.com").rstrip("/")
+# ---- 健康檢查 ----
+@app.get("/", response_class=PlainTextResponse)
+def root():
+    return "study-game-back OK"
 
-if ALLOW_ALL_CORS:
-    # 放寬（用於排錯）：任何來源都允許（不帶認證）
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=False,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    # 正常模式：只允許你的前端與本地開發
-    FRONT_ORIGINS = [FRONTEND_ORIGIN, "http://localhost:5173"]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=FRONT_ORIGINS,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# ---- /packs 與 /api/packs ----
+@app.get("/packs")
+@app.get("/api/packs")
+def get_packs():
+    # TODO: 之後接資料來源（DB/CSV/R2）
+    packs = [
+        {"slug": "chinese/grade1/colors-demo", "title": "Colors Demo", "subject": "Chinese", "grade": "Grade 1"}
+    ]
+    return packs  # 建議即使沒資料也回 200 + []
 
-# ==== Routers ====
-app.include_router(packs.router, prefix="/api", tags=["packs"])
-app.include_router(questions.router, prefix="/api", tags=["questions"])
+# ---- /quiz 與 /api/quiz ----
+@app.get("/quiz")
+@app.get("/api/quiz")
+def get_quiz(slug: str = Query("", description="e.g. chinese/grade1/colors-demo")):
+    if not slug:
+        return {"questions": []}
 
-# ==== Health & Demo ====
-@app.get("/api/ping", response_model=Health)
-def ping():
-    return Health(ok=True)
+    if slug == "chinese/grade1/colors-demo":
+        return {
+            "questions": [
+                {
+                    "id": "1",
+                    "question": "紅色的英文是？",
+                    "choiceA": "Red",
+                    "choiceB": "Blue",
+                    "choiceC": "Green",
+                    "choiceD": "Yellow",
+                    "answer": "A",
+                    "explain": "Red 就是紅色",
+                }
+            ]
+        }
 
-@app.post("/api/score")
-def save_score(payload: ScoreIn):
-    # Demo：實務上可寫 DB；這裡回 echo
-    return {"status": "ok", "echo_score": payload.score}
+    # 找不到該 slug：回空集合（避免 404）
+    return {"questions": []}
