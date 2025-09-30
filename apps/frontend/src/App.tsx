@@ -1,7 +1,7 @@
 // src/App.tsx
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import PacksPage from "./pages/PacksPage";
-import QuizPage from "./pages/QuizPage";
+import { PacksPage } from "./pages/PacksPage";
+import { QuizPage } from "./pages/QuizPage";
 
 export default function App() {
   return (
