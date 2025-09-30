@@ -16,17 +16,21 @@ export default function QuizPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!slug) { setError("Missing slug"); setLoading(false); return; }
-    const API_BASE = import.meta.env.VITE_API_BASE;
-    fetch(`${API_BASE}/quiz?slug=${encodeURIComponent(slug)}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((data) => setQuestions(data?.questions ?? data ?? []))
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [slug]);
+  if (!slug) { setError("Missing slug"); setLoading(false); return; }
+  const BASE = import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || "";
+  const q = `quiz?slug=${encodeURIComponent(slug)}`;
+  const candidates = [
+    `${BASE}/${q}`,
+    `${BASE}/api/${q}`,
+    `https://study-game-back.onrender.com/${q}`,
+    `https://study-game-back.onrender.com/api/${q}`,
+  ];
+  fetchFirstOk(candidates)
+    .then((data) => setQuestions(data?.questions ?? data ?? []))
+    .catch((e) => setError(String(e)))
+    .finally(() => setLoading(false));
+}, [slug]);
+
 
   if (loading) return <div style={{ padding: 24 }}>Loading quiz…</div>;
   if (error) return <div style={{ padding: 24, color: "crimson" }}>Error: {error}</div>;
