@@ -1,7 +1,7 @@
-// src/App.tsx
+// apps/frontend/src/App.tsx
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { PacksPage } from "./pages/PacksPage";
-import { QuizPage } from "./pages/QuizPage";
+import PacksPage from "./pages/PacksPage";
+import QuizPage from "./pages/QuizPage";
 
 export default function App() {
   return (
@@ -11,7 +11,7 @@ export default function App() {
         <Route index element={<Navigate to="/packs" replace />} />
         <Route path="/packs" element={<PacksPage />} />
         <Route path="/quiz" element={<QuizPage />} />
-        {/* SPA fallback：未知路徑 → /packs */}
+        {/* SPA fallback */}
         <Route path="*" element={<Navigate to="/packs" replace />} />
       </Routes>
     </BrowserRouter>
