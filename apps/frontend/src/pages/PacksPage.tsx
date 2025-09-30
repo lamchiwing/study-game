@@ -1,7 +1,13 @@
+// apps/frontend/src/pages/PacksPage.tsx
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-type Pack = { slug: string; title?: string; subject?: string; grade?: string };
+type Pack = {
+  slug: string;
+  title?: string;
+  subject?: string;
+  grade?: string;
+};
 
 export default function PacksPage() {
   const [packs, setPacks] = useState<Pack[]>([]);
@@ -15,27 +21,42 @@ export default function PacksPage() {
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         return r.json();
       })
-      .then((data) => setPacks(data ?? []))
+      .then((data) => {
+        // 後端可能回 {packs:[...]} 或直接是陣列，兩者都支援
+        const list = Array.isArray(data) ? data : data?.packs ?? [];
+        setPacks(list);
+      })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div style={{ padding: 24 }}>Loading packs…</div>;
-  if (error) return <div style={{ padding: 24, color: "crimson" }}>Error: {error}</div>;
-  if (!packs.length) return <div style={{ padding: 24 }}>No packs found.</div>;
+  if (loading) {
+    return <div className="p-8">Loading packs…</div>;
+  }
 
-  
+  if (error) {
+    return <div className="p-8 text-red-600">Error: {error}</div>;
+  }
+
+  if (packs.length === 0) {
+    return <div className="p-8">No packs found.</div>;
+  }
+
   return (
     <div className="p-8">
-     <h1 className="text-2xl font-semibold mb-4">Packs</h1>
-    <div style={{ padding: 24 }}>
-      <h1>Packs</h1>
-      <ul style={{ lineHeight: 2 }}>
+      <h1 className="mb-4 text-2xl font-semibold">Packs</h1>
+      <ul className="space-y-2">
         {packs.map((p) => (
-          <li key={p.slug}>
-            <Link to={`/quiz?slug=${encodeURIComponent(p.slug)}`}>
-              {p.title ?? p.slug} {p.subject ? `· ${p.subject}` : ""} {p.grade ? `· ${p.grade}` : ""}
+          <li key={p.slug} className="rounded-lg border p-3 hover:bg-gray-50">
+            <Link
+              to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
+              className="underline"
+            >
+              {p.title ?? p.slug}
             </Link>
+            <div className="text-sm text-gray-500">
+              {[p.subject, p.grade].filter(Boolean).join(" · ")}
+            </div>
           </li>
         ))}
       </ul>
