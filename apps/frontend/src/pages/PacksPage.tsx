@@ -24,7 +24,10 @@ export default function PacksPage() {
   if (error) return <div style={{ padding: 24, color: "crimson" }}>Error: {error}</div>;
   if (!packs.length) return <div style={{ padding: 24 }}>No packs found.</div>;
 
+  
   return (
+    <div className="p-8">
+     <h1 className="text-2xl font-semibold mb-4">Packs</h1>
     <div style={{ padding: 24 }}>
       <h1>Packs</h1>
       <ul style={{ lineHeight: 2 }}>
