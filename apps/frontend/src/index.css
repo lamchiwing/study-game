@@ -1,3 +1,11 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* 舊樣式搬到 components layer，能被 Purge 保留、也好管理 */
+@layer components {
+  .quiz-btn {
+    @apply px-4 py-2 rounded-xl border;
+    min-height: 44px;
+  }
+}
