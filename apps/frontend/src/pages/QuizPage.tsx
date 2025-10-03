@@ -1,94 +1,95 @@
 // apps/frontend/src/pages/QuizPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { fetchQuestions, type Question as RawQuestion } from "../lib/api";
 import ColorText from "../components/ColorText";
+import { fetchQuestions as _fetchQuestions } from "../lib/api";
 
-/** 以 ColorText 為核心的可插拔渲染 */
+// ========== 可插拔渲染：目前用 ColorText ==========
 function renderContent(text?: string) {
   if (!text) return null;
   return <ColorText text={text} />;
 }
 
-/* =========================
-   資料模型（正規化後）
-   ========================= */
-type QBase = {
-  id: string | number;
-  stem: string;
-  image?: string;
-  explain?: string;
-};
+// ========== 正規化資料模型 ==========
+type Raw = any;
+type QBase = { id: string | number; stem: string; image?: string; explain?: string };
 
 type QMCQ = QBase & {
   type: "mcq";
-  choices: string[];               // 顯示用
+  choices: string[];
   answerLetter?: "A" | "B" | "C" | "D";
-  answerText?: string;             // 若後端給文字答案
+  answerText?: string;
 };
 
-type QTF = QBase & {
-  type: "tf";
-  answerBool: boolean;
-};
-
-type QFill = QBase & {
-  type: "fill";
-  acceptable: string[];            // 可接受答案（大小寫無關、trim 比對）
-};
-
+type QTF = QBase & { type: "tf"; answerBool: boolean };
+type QFill = QBase & { type: "fill"; acceptable: string[] };
 type QMatch = QBase & {
   type: "match";
-  left: string[];                  // 左側題幹
-  right: string[];                 // 右側選項（同值不同序）
-  answerMap: number[];             // answerMap[i] = 正確 right 索引
+  left: string[];
+  right: string[];
+  answerMap: number[]; // left[i] 對應 right[ answerMap[i] ]
 };
 
 type NormQ = QMCQ | QTF | QFill | QMatch;
 
-/* =========================
-   工具：將 fetchQuestions 回傳的任意結構 → NormQ
-   ========================= */
-const toUpper = (s?: string) => (s ?? "").trim().toUpperCase();
 const normStr = (s?: string) => (s ?? "").trim().toLowerCase();
+const up = (s?: string) => (s ?? "").trim().toUpperCase();
 
-function normalizeOne(raw: any, index: number): NormQ {
-  // 嘗試辨識 type/ kind
-  const t = String(raw.type ?? raw.kind ?? raw.questionType ?? "").toLowerCase();
-
-  // 共通欄位
+function normalizeOne(raw: Raw, i: number): NormQ {
+  const typeHint = String(raw.type ?? raw.kind ?? raw.questionType ?? "").toLowerCase();
   const base: QBase = {
-    id: raw.id ?? index,
+    id: raw.id ?? i,
     stem: raw.question ?? raw.stem ?? "",
     image: raw.image,
     explain: raw.explain ?? raw.explanation,
   };
 
-  // 1) MATCH：優先判斷（若有 pairs / left+right）
-  if (Array.isArray(raw.pairs) && raw.pairs.length) {
-    const left = raw.pairs.map((p: any) => p.left);
-    const right = raw.pairs.map((p: any) => p.right);
-    const answerMap = left.map((l: string) => right.findIndex((r: string) => normStr(r) === normStr(raw.pairs.find((p: any) => p.left === l)?.right)));
-    return { ...base, type: "match", left, right, answerMap };
+  // MATCH：pairs JSON 或 left/right/answerMap
+  if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
+    try {
+      const arr =
+        typeof raw.pairs === "string" ? JSON.parse(raw.pairs) : (raw.pairs as any[]);
+      const left = arr.map((p: any) => p.left);
+      const right = arr.map((p: any) => p.right);
+      const answerMap = left.map((L: string) =>
+        right.findIndex((R: string) => normStr(R) === normStr(arr.find((x) => x.left === L)?.right))
+      );
+      return { ...base, type: "match", left, right, answerMap };
+    } catch {
+      /* fallthrough */
+    }
   }
   if (Array.isArray(raw.left) && Array.isArray(raw.right) && Array.isArray(raw.answerMap)) {
-    return { ...base, type: "match", left: raw.left, right: raw.right, answerMap: raw.answerMap.map((x: any) => Number(x)) };
+    return {
+      ...base,
+      type: "match",
+      left: raw.left,
+      right: raw.right,
+      answerMap: raw.answerMap.map((n: any) => Number(n)),
+    };
   }
 
-  // 2) TF（顯式 type 或答案為 True/False）
-  const ansUp = toUpper(raw.answer);
-  if (t === "tf" || t === "truefalse" || ansUp === "T" || ansUp === "F" || ansUp === "TRUE" || ansUp === "FALSE" || typeof raw.answerBool === "boolean") {
+  // TF：顯式 tf 或 answer 為 true/false/t/f
+  const A = up(raw.answer);
+  if (
+    typeHint === "tf" ||
+    typeHint === "truefalse" ||
+    A === "T" ||
+    A === "F" ||
+    A === "TRUE" ||
+    A === "FALSE" ||
+    typeof raw.answerBool === "boolean"
+  ) {
     const answerBool =
-      typeof raw.answerBool === "boolean"
-        ? raw.answerBool
-        : ansUp === "T" || ansUp === "TRUE";
+      typeof raw.answerBool === "boolean" ? raw.answerBool : A === "T" || A === "TRUE";
     return { ...base, type: "tf", answerBool };
   }
 
-  // 3) FILL（顯式 type 或沒有 choices 但有 answer 文本／answers 陣列）
-  const hasChoicesArray = Array.isArray(raw.choices) && raw.choices.length > 0;
-  const hasChoiceFields = ["choiceA", "choiceB", "choiceC", "choiceD"].some((k) => raw[k]);
-  if (t === "fill" || (!hasChoicesArray && !hasChoiceFields && (raw.answer || raw.answers))) {
+  // FILL：沒有選項，但有答案陣列/多個答案
+  const hasChoices =
+    (Array.isArray(raw.choices) && raw.choices.length > 0) ||
+    ["choiceA", "choiceB", "choiceC", "choiceD"].some((k) => raw[k]);
+  if (typeHint === "fill" || (!hasChoices && (raw.answer || raw.answers))) {
     const acceptable = Array.isArray(raw.answers)
       ? raw.answers.map(normStr)
       : String(raw.answer ?? "")
@@ -98,104 +99,94 @@ function normalizeOne(raw: any, index: number): NormQ {
     return { ...base, type: "fill", acceptable };
   }
 
-  // 4) MCQ（預設）
-  const choices: string[] = hasChoicesArray
+  // 預設 MCQ
+  const choices: string[] = Array.isArray(raw.choices)
     ? raw.choices
-    : ["choiceA", "choiceB", "choiceC", "choiceD"]
-        .map((k) => raw[k])
-        .filter(Boolean);
-
-  const letter = toUpper(raw.answer);
-  const answerLetter = (["A", "B", "C", "D"] as const).includes(letter as any) ? (letter as "A" | "B" | "C" | "D") : undefined;
+    : ["choiceA", "choiceB", "choiceC", "choiceD"].map((k) => raw[k]).filter(Boolean);
+  const letter = up(raw.answer);
+  const answerLetter = (["A", "B", "C", "D"] as const).includes(letter as any)
+    ? (letter as "A" | "B" | "C" | "D")
+    : undefined;
   const answerText = !answerLetter ? String(raw.answer ?? "").trim() : undefined;
 
-  return {
-    ...base,
-    type: "mcq",
-    choices,
-    answerLetter,
-    answerText,
-  };
+  return { ...base, type: "mcq", choices, answerLetter, answerText };
 }
 
-function normalize(rawList: RawQuestion[] | any[]): NormQ[] {
-  return (rawList ?? []).map((r, i) => normalizeOne(r, i));
+function normalizeList(raw: unknown): NormQ[] {
+  const list = Array.isArray(raw) ? raw : (raw as any)?.questions;
+  if (!Array.isArray(list)) return [];
+  return list.map(normalizeOne);
 }
 
-/* =========================
-   檢查正確性
-   ========================= */
+// ========== 判斷正確 ==========
 function isCorrect(q: NormQ, ans: any): boolean {
   switch (q.type) {
     case "mcq": {
       if (ans == null || typeof ans !== "number") return false;
-      if (q.answerLetter) {
-        const idx = "ABCD".indexOf(q.answerLetter);
-        return idx === ans;
-      }
-      if (q.answerText) {
-        const txt = q.choices[ans] ?? "";
-        return normStr(q.answerText) === normStr(txt);
-      }
+      if (q.answerLetter) return "ABCD".indexOf(q.answerLetter) === ans;
+      if (q.answerText) return normStr(q.answerText) === normStr(q.choices[ans] ?? "");
       return false;
     }
     case "tf":
-      return typeof ans === "boolean" ? ans === q.answerBool : false;
+      return typeof ans === "boolean" && ans === q.answerBool;
     case "fill":
-      if (typeof ans !== "string") return false;
-      const a = normStr(ans);
-      return q.acceptable.some((acc) => a === acc);
+      return typeof ans === "string" && q.acceptable.includes(normStr(ans));
     case "match":
-      if (!Array.isArray(ans) || ans.length !== q.left.length) return false;
-      return ans.every((v, i) => Number(v) === q.answerMap[i]);
+      return Array.isArray(ans) && ans.every((v, i) => Number(v) === q.answerMap[i]);
   }
 }
 
-/* =========================
-   UI 元件
-   ========================= */
+// ========== 頁面主體 ==========
 export default function QuizPage() {
   const [sp] = useSearchParams();
   const slug = sp.get("slug") ?? "";
 
   const [questions, setQuestions] = useState<NormQ[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [apiUrl, setApiUrl] = useState<string | undefined>();
+  const [debug, setDebug] = useState<string | undefined>();
 
+  // 答案狀態
   const [idx, setIdx] = useState(0);
-  // 各型別對應的答案型態：
-  // mcq: number|null, tf: boolean|null, fill: string, match: (number|null)[]
   const [answers, setAnswers] = useState<any[]>([]);
   const [done, setDone] = useState(false);
 
+  // 讀題目（兼容 fetchQuestions 兩種回傳型態）
   useEffect(() => {
     if (!slug) {
-      setError("Missing slug");
+      setQuestions([]);
       setLoading(false);
       return;
     }
     setLoading(true);
-    setError(null);
-    fetchQuestions(slug)
-      .then((raw: any) => {
-        const list = Array.isArray(raw?.questions) ? raw.questions : raw;
-        const qs = normalize(list);
-        setQuestions(qs);
-        setIdx(0);
-        setDone(false);
-        // 初始化答案
+    setDone(false);
+    (async () => {
+      try {
+        const ret: any = await _fetchQuestions(slug);
+        // 兼容：若回 {list, usedUrl, debug}
+        const list = normalizeList(ret?.list ?? ret);
+        setQuestions(list);
         setAnswers(
-          qs.map((q) => {
-            if (q.type === "mcq") return null as number | null;
-            if (q.type === "tf") return null as boolean | null;
-            if (q.type === "fill") return "" as string;
-            if (q.type === "match") return Array(q.left.length).fill(null) as Array<number | null>;
+          list.map((q) => {
+            if (q.type === "mcq") return null;
+            if (q.type === "tf") return null;
+            if (q.type === "fill") return "";
+            if (q.type === "match") return Array(q.left.length).fill(null);
             return null;
           })
         );
-      })
-      .catch((e: unknown) => setError(String(e)))
-      .finally(() => setLoading(false));
+        setIdx(0);
+        setApiUrl(ret?.usedUrl);
+        setDebug(ret?.debug);
+      } catch (e: any) {
+        console.warn("fetchQuestions failed:", e);
+        setQuestions([]);
+        setApiUrl(undefined);
+        setDebug(String(e));
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, [slug]);
 
   // 計分
@@ -206,45 +197,36 @@ export default function QuizPage() {
   }, [questions, answers]);
 
   // Handlers
-  function pickMCQ(i: number) {
+  const pickMCQ = (i: number) =>
     setAnswers((prev) => {
       const next = prev.slice();
       next[idx] = i;
       return next;
     });
-  }
-  function pickTF(val: boolean) {
+  const pickTF = (b: boolean) =>
     setAnswers((prev) => {
       const next = prev.slice();
-      next[idx] = val;
+      next[idx] = b;
       return next;
     });
-  }
-  function fillText(text: string) {
+  const fillText = (text: string) =>
     setAnswers((prev) => {
       const next = prev.slice();
       next[idx] = text;
       return next;
     });
-  }
-  function pickMatch(leftIndex: number, rightIndex: number | null) {
+  const pickMatch = (li: number, ri: number | null) =>
     setAnswers((prev) => {
       const next = prev.slice();
       const arr = (next[idx] as Array<number | null>).slice();
-      arr[leftIndex] = rightIndex;
+      arr[li] = ri;
       next[idx] = arr;
       return next;
     });
-  }
 
-  function nextQ() {
-    if (idx + 1 < questions.length) setIdx(idx + 1);
-    else setDone(true);
-  }
-  function prevQ() {
-    if (idx > 0) setIdx(idx - 1);
-  }
-  function restart() {
+  const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
+  const prevQ = () => idx > 0 && setIdx(idx - 1);
+  const restart = () => {
     setAnswers(
       questions.map((q) => {
         if (q.type === "mcq") return null;
@@ -256,45 +238,65 @@ export default function QuizPage() {
     );
     setIdx(0);
     setDone(false);
-  }
+  };
 
-  // 畫面狀態
+  // ===== 畫面狀態 =====
   if (loading) return <div className="p-6">Loading…</div>;
-  if (error) return <div className="p-6 text-red-600">Error: {error}</div>;
-  if (!questions.length)
+
+  if (!questions.length) {
     return (
       <div className="p-6 space-y-3">
-        <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
+          <Link to="/packs" className="text-sm underline">
+            ← Back to Packs
+          </Link>
+        </div>
         <p>No questions.</p>
-        <Link to="/packs" className="underline">
-          ← Back to Packs
-        </Link>
+        {(apiUrl || debug) && (
+          <div className="text-xs text-gray-500 break-all">
+            source: {apiUrl ?? "N/A"}
+            {debug ? <> · debug: {debug}</> : null}
+          </div>
+        )}
       </div>
     );
+  }
 
-  // 完成頁
   if (done) {
-    const wrong = total - score;
     const percent = total ? Math.round((score / total) * 100) : 0;
     return (
-      <div className="p-6 max-w-3xl mx-auto space-y-4">
-        <h1 className="text-2xl font-bold">完成！</h1>
-        <p>
-          總題數：{total}　✅ 正確：{score}　❌ 錯誤：{wrong}（{percent}%）
-        </p>
+      <div className="p-6 max-w-3xl mx-auto space-y-5">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold">Result</h1>
+          <Link to="/packs" className="text-sm underline">
+            ← Back to Packs
+          </Link>
+        </div>
+        {(apiUrl || debug) && (
+          <div className="text-xs text-gray-500 break-all">
+            source: {apiUrl ?? "N/A"}
+            {debug ? <> · debug: {debug}</> : null}
+          </div>
+        )}
+        <div className="text-lg">
+          Score: <span className="font-semibold">{score}</span> / {total} ({percent}%)
+        </div>
 
+        {/* 詳解清單 */}
         <div className="space-y-3">
           {questions.map((q, i) => {
             const ok = isCorrect(q, answers[i]);
             return (
               <div
                 key={q.id ?? i}
-                className={`rounded border p-4 ${ok ? "border-emerald-400 bg-emerald-50" : "border-red-300 bg-red-50"}`}
+                className={`rounded border p-4 ${
+                  ok ? "border-emerald-400 bg-emerald-50" : "border-red-300 bg-red-50"
+                }`}
               >
                 <div className="mb-1 text-sm text-gray-500">Q{i + 1}</div>
                 <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
 
-                {/* 顯示作答與正解（依型別） */}
                 <div className="text-sm">
                   你的答案：
                   {" "}
@@ -304,20 +306,27 @@ export default function QuizPage() {
                       case "mcq":
                         return a != null ? (
                           <>
-                            {["A", "B", "C", "D"][a as number]}. {renderContent(q.choices[a as number])}
+                            {["A", "B", "C", "D"][a as number]}.{" "}
+                            {renderContent(q.choices[a as number])}
                           </>
-                        ) : <em>—</em>;
+                        ) : (
+                          <em>—</em>
+                        );
                       case "tf":
-                        return a == null ? <em>—</em> : (a ? "True" : "False");
+                        return a == null ? <em>—</em> : a ? "True" : "False";
                       case "fill":
-                        return (a as string)?.trim() ? renderContent(String(a)) : <em>—</em>;
+                        return String(a ?? "").trim() ? renderContent(String(a)) : <em>—</em>;
                       case "match":
                         return (
                           <ul className="mt-1 list-disc pl-5">
                             {q.left.map((L, li) => {
                               const ri = (a as Array<number | null>)[li];
                               const R = ri != null ? q.right[ri] : "—";
-                              return <li key={li}>{renderContent(L)} {" → "} {renderContent(R)}</li>;
+                              return (
+                                <li key={li}>
+                                  {renderContent(L)} {" → "} {renderContent(R)}
+                                </li>
+                              );
                             })}
                           </ul>
                         );
@@ -325,36 +334,37 @@ export default function QuizPage() {
                   })()}
                 </div>
 
-                {/* 正解 / 解釋 */}
-                <div className="mt-2 text-sm">
-                  {!ok && (
-                    <>
-                      正確答案：
-                      {" "}
-                      {q.type === "mcq" && (
-                        q.answerLetter
-                          ? `${q.answerLetter}. ${q.choices["ABCD".indexOf(q.answerLetter)]}`
-                          : q.answerText
-                      )}
-                      {q.type === "tf" && (q.answerBool ? "True" : "False")}
-                      {q.type === "fill" && q.acceptable.join(" | ")}
-                      {q.type === "match" && (
-                        <ul className="mt-1 list-disc pl-5">
-                          {q.left.map((L, li) => {
-                            const ri = q.answerMap[li];
-                            const R = q.right[ri];
-                            return <li key={li}>{renderContent(L)} {" → "} {renderContent(R)}</li>;
-                          })}
-                        </ul>
-                      )}
-                    </>
-                  )}
-                  {q.explain ? (
-                    <div className="mt-2 text-gray-600">
-                      解釋：{renderContent(q.explain)}
-                    </div>
-                  ) : null}
-                </div>
+                {!ok && (
+                  <div className="mt-2 text-sm">
+                    正確答案：
+                    {" "}
+                    {q.type === "mcq" &&
+                      (q.answerLetter
+                        ? `${q.answerLetter}. ${q.choices["ABCD".indexOf(q.answerLetter)]}`
+                        : q.choices.find((c) => normStr(c) === normStr((q as any).answerText)))}
+                    {q.type === "tf" && (q.answerBool ? "True" : "False")}
+                    {q.type === "fill" && q.acceptable.join(" | ")}
+                    {q.type === "match" && (
+                      <ul className="mt-1 list-disc pl-5">
+                        {q.left.map((L, li) => {
+                          const ri = q.answerMap[li];
+                          const R = q.right[ri];
+                          return (
+                            <li key={li}>
+                              {renderContent(L)} {" → "} {renderContent(R)}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                )}
+
+                {q.explain ? (
+                  <div className="mt-2 text-sm text-gray-600">
+                    解釋：{renderContent(q.explain)}
+                  </div>
+                ) : null}
               </div>
             );
           })}
@@ -362,34 +372,46 @@ export default function QuizPage() {
 
         <div className="flex gap-2">
           <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">
-            再做一次
+            Restart
           </button>
           <Link to="/packs" className="rounded border px-3 py-2">
-            ← 返回題包列表
+            ← Back to Packs
           </Link>
         </div>
       </div>
     );
   }
 
-  // 題目頁
+  // 題目畫面
   const q = questions[idx]!;
   const a = answers[idx];
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
-        <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
+        <div>
+          <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
+          {(apiUrl || debug) && (
+            <div className="text-xs text-gray-500 break-all">
+              source: {apiUrl ?? "N/A"}
+              {debug ? <> · debug: {debug}</> : null}
+            </div>
+          )}
+        </div>
+        <Link to="/packs" className="text-sm underline">
+          ← Back to Packs
+        </Link>
       </div>
 
-      <div className="text-sm text-gray-500">Question {idx + 1} / {questions.length}</div>
+      <div className="text-sm text-gray-500">
+        Question {idx + 1} / {questions.length}
+      </div>
 
       <div className="rounded-lg border p-5">
         <div className="mb-3 font-medium">{renderContent(q.stem)}</div>
         {q.image ? <img src={q.image} alt="" className="mb-4 max-h-72 rounded" /> : null}
 
-        {/* 依型別渲染互動區 */}
+        {/* 互動區：依題型渲染 */}
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
@@ -398,7 +420,9 @@ export default function QuizPage() {
                 <button
                   key={i}
                   onClick={() => pickMCQ(i)}
-                  className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${active ? "border-black ring-1 ring-black" : ""}`}
+                  className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${
+                    active ? "border-black ring-1 ring-black" : ""
+                  }`}
                 >
                   <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-semibold">
                     {"ABCD"[i]}
@@ -414,13 +438,17 @@ export default function QuizPage() {
           <div className="flex gap-2">
             <button
               onClick={() => pickTF(true)}
-              className={`rounded border px-3 py-2 ${a === true ? "border-black ring-1 ring-black" : ""}`}
+              className={`rounded border px-3 py-2 ${
+                a === true ? "border-black ring-1 ring-black" : ""
+              }`}
             >
               True
             </button>
             <button
               onClick={() => pickTF(false)}
-              className={`rounded border px-3 py-2 ${a === false ? "border-black ring-1 ring-black" : ""}`}
+              className={`rounded border px-3 py-2 ${
+                a === false ? "border-black ring-1 ring-black" : ""
+              }`}
             >
               False
             </button>
@@ -442,8 +470,9 @@ export default function QuizPage() {
           <div className="grid gap-3">
             {q.left.map((L, li) => {
               const chosen = (a as Array<number | null>)[li];
-              // 禁用已被其他 left 選走的 right（避免重複配對）
-              const used = new Set((a as Array<number | null>).filter((x, i2) => i2 !== li && x != null) as number[]);
+              const used = new Set(
+                (a as Array<number | null>).filter((x, j) => j !== li && x != null) as number[]
+              );
               return (
                 <div key={li} className="flex items-center gap-3">
                   <div className="flex-1 rounded border p-2">{renderContent(L)}</div>
@@ -451,12 +480,14 @@ export default function QuizPage() {
                   <select
                     className="w-1/2 rounded border p-2"
                     value={chosen ?? ""}
-                    onChange={(e) => pickMatch(li, e.target.value === "" ? null : Number(e.target.value))}
+                    onChange={(e) =>
+                      pickMatch(li, e.target.value === "" ? null : Number(e.target.value))
+                    }
                   >
                     <option value="">請選擇</option>
                     {q.right.map((R, ri) => (
                       <option key={ri} value={ri} disabled={used.has(ri)}>
-                        {renderContent(R) as any /* TSX option 內直接放 ReactNode 會警告，這行為簡化展示 */}
+                        {R}
                       </option>
                     ))}
                   </select>
@@ -468,12 +499,16 @@ export default function QuizPage() {
       </div>
 
       <div className="flex items-center justify-between">
-        <button onClick={prevQ} disabled={idx === 0} className="rounded border px-3 py-2 disabled:opacity-50">
-          ← 上一題
+        <button
+          onClick={prevQ}
+          disabled={idx === 0}
+          className="rounded border px-3 py-2 disabled:opacity-50"
+        >
+          ← Prev
         </button>
         <div className="text-sm text-gray-600">
           {q.type === "fill"
-            ? (a as string)?.trim()
+            ? String(a ?? "").trim()
               ? "已填寫"
               : "請填寫答案"
             : a == null || (Array.isArray(a) && a.some((x) => x == null))
@@ -481,7 +516,7 @@ export default function QuizPage() {
             : "已選擇"}
         </div>
         <button onClick={nextQ} className="rounded bg-black px-3 py-2 text-white">
-          {idx < questions.length - 1 ? "下一題 →" : "完成 ✅"}
+          {idx < questions.length - 1 ? "Next →" : "Finish ✅"}
         </button>
       </div>
     </div>
