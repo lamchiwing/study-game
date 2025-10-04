@@ -9,3 +9,30 @@
     min-height: 44px;
   }
 }
+:root{
+  /* Japanese-inspired palette — 先用示例碼，之後你可替換成 Pinterest 那套 */
+  --c-sakura:   #F6BDC9; /* 櫻 */
+  --c-momo:     #F48FB1; /* 桃 */
+  --c-kurenai:  #C2185B; /* 紅 */
+  --c-ume:      #B56A7A; /* 梅 */
+
+  --c-ai:       #2A4B8D; /* 藍 */
+  --c-asagi:    #2F6B79; /* 浅葱 */
+  --c-mizuasagi:#7FB3B2; /* 水浅葱 */
+  --c-kon:      #1F2D3D; /* 紺 */
+
+  --c-matcha:   #88A550; /* 抹茶 */
+  --c-wakaba:   #A8C66C; /* 若葉 */
+  --c-uguisu:   #6B8E23; /* 鶯 */
+
+  --c-yamabuki: #FFC107; /* 山吹 */
+  --c-kincha:   #C98A22; /* 金茶 */
+  --c-kikyo:    #6A5AA1; /* 桔梗 */
+  --c-murasaki: #6F4B8B; /* 紫 */
+}
+
+/* 讓 [bgc=色名] 文字仍有對比度 */
+.jp-bg { padding: 0 .25rem; border-radius: .25rem; }
+.jp-bg[data-c="yamabuki"], .jp-bg[data-c="kincha"] { color:#1f2937; } /* 黃/橙系用深字色 */
+.jp-bg[data-c="sakura"], .jp-bg[data-c="momo"], .jp-bg[data-c="mizuasagi"], .jp-bg[data-c="wakaba"] { color:#111; }
+.jp-bg[data-c="ai"], .jp-bg[data-c="kon"], .jp-bg[data-c="kurenai"], .jp-bg[data-c="murasaki"] { color:#fff; }
