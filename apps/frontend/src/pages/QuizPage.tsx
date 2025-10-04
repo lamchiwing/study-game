@@ -1,13 +1,60 @@
 // apps/frontend/src/pages/QuizPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import ColorText from "../components/ColorText";
+import parse from "bbcode-to-react";
 import { fetchQuestions as _fetchQuestions } from "../lib/api";
 
-// ========== 可插拔渲染：目前用 ColorText ==========
+/* -----------------------------------------------------------
+   BBCode 預處理（動態色名 + 常用語法）
+   - 在全域 CSS（如 index.css）定義 :root { --c-ai: #2A4B8D; ... }
+   - 文字色：[c=ai]文字[/c] → color:var(--c-ai)
+   - 底色：[bgc=ai]文字[/bgc] → background:var(--c-ai) + .jp-bg
+----------------------------------------------------------- */
+function preprocessBBCode(input?: string): string {
+  let text = input ?? "";
+
+  // 舊寫法別名 → 動態色名
+  text = text
+    .replace(/\[red\](.*?)\[\/red\]/gis, "[c=red]$1[/c]")
+    .replace(/\[blue\](.*?)\[\/blue\]/gis, "[c=blue]$1[/c]")
+    .replace(/\[green\](.*?)\[\/green\]/gis, "[c=green]$1[/c]")
+    .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]"); // yellow → 山吹（示例）
+
+  // 動態字色 / 底色
+  text = text.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis, (_m, token, body) =>
+    `<span style="color:var(--c-${token})">${body}</span>`
+  );
+  text = text.replace(/\[bgc=([a-z0-9_-]+)\](.*?)\[\/bgc\]/gis, (_m, token, body) =>
+    `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
+  );
+
+  // 可選：字級（px）
+  text = text.replace(/\[size=(\d+)\](.*?)\[\/size\]/gis, (_m, n, s) =>
+    `<span style="font-size:${Number(n)}px">${s}</span>`
+  );
+
+  // 可選：上/下標
+  text = text
+    .replace(/\[sup\](.*?)\[\/sup\]/gis, `<span style="vertical-align:super;font-size:.75em">$1</span>`)
+    .replace(/\[sub\](.*?)\[\/sub\]/gis, `<span style="vertical-align:sub;font-size:.75em">$1</span>`);
+
+  return text;
+}
+
+// 給 <option> / 純文字環境用：移除 BBCode / HTML
+function stripBBCode(input?: string) {
+  const t = preprocessBBCode(input);
+  return t
+    .replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "")               // 任何殘留 BBCode
+    .replace(/<\/?(?:span|div|ruby|rt|strong|em|u|del)[^>]*>/gi, "") // 我們產生的簡單標籤
+    .replace(/<[^>]+>/g, "")                              // 其他 HTML
+    .trim();
+}
+
+// ========== 可插拔渲染：BBCode ==========
 function renderContent(text?: string) {
   if (!text) return null;
-  return <ColorText text={text} />;
+  return <span>{parse(preprocessBBCode(text))}</span>;
 }
 
 // ========== 正規化資料模型 ==========
@@ -47,12 +94,13 @@ function normalizeOne(raw: Raw, i: number): NormQ {
   // MATCH：pairs JSON 或 left/right/answerMap
   if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
     try {
-      const arr =
-        typeof raw.pairs === "string" ? JSON.parse(raw.pairs) : (raw.pairs as any[]);
+      const arr = typeof raw.pairs === "string" ? JSON.parse(raw.pairs) : (raw.pairs as any[]);
       const left = arr.map((p: any) => p.left);
       const right = arr.map((p: any) => p.right);
       const answerMap = left.map((L: string) =>
-        right.findIndex((R: string) => normStr(R) === normStr(arr.find((x) => x.left === L)?.right))
+        right.findIndex(
+          (R: string) => normStr(R) === normStr(arr.find((x: any) => x.left === L)?.right)
+        )
       );
       return { ...base, type: "match", left, right, answerMap };
     } catch {
@@ -298,8 +346,7 @@ export default function QuizPage() {
                 <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
 
                 <div className="text-sm">
-                  你的答案：
-                  {" "}
+                  你的答案：{" "}
                   {(() => {
                     const a = answers[i];
                     switch (q.type) {
@@ -336,12 +383,19 @@ export default function QuizPage() {
 
                 {!ok && (
                   <div className="mt-2 text-sm">
-                    正確答案：
-                    {" "}
+                    正確答案：{" "}
                     {q.type === "mcq" &&
-                      (q.answerLetter
-                        ? `${q.answerLetter}. ${q.choices["ABCD".indexOf(q.answerLetter)]}`
-                        : q.choices.find((c) => normStr(c) === normStr((q as any).answerText)))}
+                      (q.answerLetter ? (
+                        <>
+                          {q.answerLetter}.{" "}
+                          {renderContent(q.choices["ABCD".indexOf(q.answerLetter)])}
+                        </>
+                      ) : (
+                        renderContent(
+                          q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ??
+                            ""
+                        )
+                      ))}
                     {q.type === "tf" && (q.answerBool ? "True" : "False")}
                     {q.type === "fill" && q.acceptable.join(" | ")}
                     {q.type === "match" && (
@@ -487,7 +541,7 @@ export default function QuizPage() {
                     <option value="">請選擇</option>
                     {q.right.map((R, ri) => (
                       <option key={ri} value={ri} disabled={used.has(ri)}>
-                        {R}
+                        {stripBBCode(R)}
                       </option>
                     ))}
                   </select>
