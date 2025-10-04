@@ -10,7 +10,12 @@
   }
 }
 :root{
-  /* Japanese-inspired palette — 先用示例碼，之後你可替換成 Pinterest 那套 */
+  /* 基本色（供 [c=red|blue|green] 用） */
+  --c-red:   #ef4444;   /* Tailwind red-500 風格 */
+  --c-blue:  #3b82f6;   /* blue-500 */
+  --c-green: #10b981;   /* emerald-500 */
+
+  /* Japanese-inspired palette */
   --c-sakura:   #F6BDC9; /* 櫻 */
   --c-momo:     #F48FB1; /* 桃 */
   --c-kurenai:  #C2185B; /* 紅 */
