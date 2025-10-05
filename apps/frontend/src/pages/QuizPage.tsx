@@ -19,6 +19,13 @@ function preprocessBBCodeToHTML(input?: string): string {
     .replace(/\[green\](.*?)\[\/green\]/gis, "[c=wakaba]$1[/c]")
     .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]");
 
+  t = t
+    .replace(/\[c=orange\](.*?)\[\/c\]/gis, "[c=orange]$1[/c]") // 保留語法，下面會轉 <span>
+    .replace(/\[c=purple\](.*?)\[\/c\]/gis, "[c=purple]$1[/c]")
+    .replace(/\[bgc=orange\](.*?)\[\/bgc\]/gis, "[bgc=orange]$1[/bgc]")
+    .replace(/\[bgc=purple\](.*?)\[\/bgc\]/gis, "[bgc=purple]$1[/bgc]");
+ 
+
   // 粗體/斜體/底線/刪除線（常見 BBCode）
   t = t
     .replace(/\[b\](.*?)\[\/b\]/gis, "<strong>$1</strong>")
