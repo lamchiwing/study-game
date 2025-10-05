@@ -34,6 +34,8 @@
   --c-kincha:   #C98A22; /* 金茶 */
   --c-kikyo:    #6A5AA1; /* 桔梗 */
   --c-murasaki: #6F4B8B; /* 紫 */
+  --c-orange:  var(--c-yamabuki);
+  --c-purple:  var(--c-murasaki);
 }
 
 /* 讓 [bgc=色名] 文字仍有對比度 */
