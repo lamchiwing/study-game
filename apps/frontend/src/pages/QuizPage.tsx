@@ -54,8 +54,10 @@ function stripBBCode(input?: string) {
 // ========== 可插拔渲染：BBCode ==========
 function renderContent(text?: string) {
   if (!text) return null;
-  return <span>{parse(preprocessBBCode(text))}</span>;
+  const bb = preprocessBBCode(text);
+  return <span>{parser.toReact(bb)}</span>;
 }
+
 
 // ========== 正規化資料模型 ==========
 type Raw = any;
