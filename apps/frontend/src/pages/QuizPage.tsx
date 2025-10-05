@@ -1,33 +1,25 @@
-// apps/frontend/src/pages/QuizPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fetchQuestions as _fetchQuestions } from "../lib/api";
-import { renderContent, preprocessBBCodeToHTML } from "../lib/bbcode";
+// remove these because we define them below:
+// import { renderContent, preprocessBBCodeToHTML } from "../lib/bbcode";
 
-
-/* -----------------------------------------------------------
-   BBCode 預處理（動態色名 + 常用語法）→ 直接輸出 HTML
-   - 在 index.css 設定 :root { --c-ai: #2A4B8D; --c-yamabuki:#FFC107; ... }
-   - [c=ai]文字[/c]  → <span style="color:var(--c-ai)">文字</span>
-   - [bgc=ai]文字[/bgc] → <span class="jp-bg" data-c="ai" style="background:var(--c-ai)">文字</span>
------------------------------------------------------------ */
-// 放在 QuizPage.tsx 頂部：imports 之後
+/** ---- BBCode → HTML (supports [red]/[blue]/[green]/[yellow] and [purple]/[orange]) ---- */
 function preprocessBBCodeToHTML(input?: string): string {
   let t = input ?? "";
 
-  // 舊寫法 → 統一成 [c=token]
+  // legacy tags → unified [c=token]
   t = t
-    .replace(/\[red\](.*?)\[\/red\]/gis, "[c=kurenai]$1[/c]")
-    .replace(/\[blue\](.*?)\[\/blue\]/gis, "[c=ai]$1[/c]")
+    .replace(/\[red\](.*?)\[\/red\]/gis,    "[c=kurenai]$1[/c]")
+    .replace(/\[blue\](.*?)\[\/blue\]/gis,  "[c=ai]$1[/c]")
     .replace(/\[green\](.*?)\[\/green\]/gis, "[c=wakaba]$1[/c]")
-    .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]")
-    // 新增：直接色名標籤
-    .replace(/\[orange\](.*?)\[\/orange\]/gis, "[c=orange]$1[/c]")
-    .replace(/\[purple\](.*?)\[\/purple\]/gis, "[c=purple]$1[/c]")
-    .replace(/\[bgorange\](.*?)\[\/bgorange\]/gis, "[bgc=orange]$1[/bgc]")
-    .replace(/\[bgpurple\](.*?)\[\/bgpurple\]/gis, "[bgc=purple]$1[/bgc]");
+    .replace(/\[yellow\](.*?)\[\/yellow\]/gis,"[c=yamabuki]$1[/c]")
+    .replace(/\[orange\](.*?)\[\/orange\]/gis,"[c=orange]$1[/c]")
+    .replace(/\[purple\](.*?)\[\/purple\]/gis,"[c=purple]$1[/c]")
+    .replace(/\[bgorange\](.*?)\[\/bgorange\]/gis,"[bgc=orange]$1[/bgc]")
+    .replace(/\[bgpurple\](.*?)\[\/bgpurple\]/gis,"[bgc=purple]$1[/bgc]");
 
-  // 動態字色 / 底色
+  // dynamic color / background color
   t = t.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis,
     (_m, token, body) => `<span style="color:var(--c-${token})">${body}</span>`
   );
@@ -36,6 +28,14 @@ function preprocessBBCodeToHTML(input?: string): string {
   );
 
   return t;
+}
+
+function stripBBCode(input?: string): string {
+  const t = input ?? "";
+  return t
+    .replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "") // remove [bbcode]
+    .replace(/<[^>]+>/g, "")                // remove html if any
+    .trim();
 }
 
 function renderContent(text?: string) {
