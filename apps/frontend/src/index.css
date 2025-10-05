@@ -2,50 +2,44 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 舊樣式搬到 components layer，能被 Purge 保留、也好管理 */
 @layer components {
-  .quiz-btn {
-    @apply px-4 py-2 rounded-xl border;
-    min-height: 44px;
-  }
+  .quiz-btn { @apply px-4 py-2 rounded-xl border; min-height: 44px; }
+  .card-like { @apply rounded-lg border bg-white; }
 }
+
 :root{
-  /* 基本色（供 [c=red|blue|green] 用） */
-  --c-red:   #ef4444;   /* Tailwind red-500 風格 */
-  --c-blue:  #3b82f6;   /* blue-500 */
-  --c-green: #10b981;   /* emerald-500 */
+  /* 基本色 */
+  --c-red:#ef4444; --c-blue:#3b82f6; --c-green:#10b981;
 
-  /* Japanese-inspired palette */
-  --c-sakura:   #F6BDC9; /* 櫻 */
-  --c-momo:     #F48FB1; /* 桃 */
-  --c-kurenai:  #C2185B; /* 紅 */
-  --c-ume:      #B56A7A; /* 梅 */
+  /* Japanese-inspired */
+  --c-sakura:#F6BDC9; --c-momo:#F48FB1; --c-kurenai:#C2185B; --c-ume:#B56A7A;
+  --c-ai:#2A4B8D; --c-asagi:#2F6B79; --c-mizuasagi:#7FB3B2; --c-kon:#1F2D3D;
+  --c-matcha:#88A550; --c-wakaba:#A8C66C; --c-uguisu:#6B8E23;
+  --c-yamabuki:#FFC107; --c-kincha:#C98A22; --c-kikyo:#6A5AA1; --c-murasaki:#6F4B8B;
 
-  --c-ai:       #2A4B8D; /* 藍 */
-  --c-asagi:    #2F6B79; /* 浅葱 */
-  --c-mizuasagi:#7FB3B2; /* 水浅葱 */
-  --c-kon:      #1F2D3D; /* 紺 */
+  /* 別名 */
+  --c-orange: var(--c-yamabuki);
+  --c-purple: var(--c-murasaki);
+  --c-yellow: var(--c-yamabuki);
+  --c-gray:   #6b7280;
 
-  --c-matcha:   #88A550; /* 抹茶 */
-  --c-wakaba:   #A8C66C; /* 若葉 */
-  --c-uguisu:   #6B8E23; /* 鶯 */
-
-  --c-yamabuki: #FFC107; /* 山吹 */
-  --c-kincha:   #C98A22; /* 金茶 */
-  --c-kikyo:    #6A5AA1; /* 桔梗 */
-  --c-murasaki: #6F4B8B; /* 紫 */
-  --c-orange:  var(--c-yamabuki);
-  --c-purple:  var(--c-murasaki);
+  /* 頁面背景 */
+  --c-page-bg:#f7e7cd; /* 米色 */
 }
 
-/* 讓 [bgc=色名] 文字仍有對比度 */
-.jp-bg { padding: 0 .25rem; border-radius: .25rem; }
-.jp-bg[data-c="yamabuki"], .jp-bg[data-c="kincha"] { color:#1f2937; } /* 黃/橙系用深字色 */
+@layer base {
+  html, body { background-color: var(--c-page-bg); color:#111827; min-height:100%; }
+}
+
+/* [bgc=色名] 的對比字色 */
+.jp-bg { padding:0 .25rem; border-radius:.25rem; }
+.jp-bg[data-c="yamabuki"], .jp-bg[data-c="kincha"] { color:#1f2937; }
 .jp-bg[data-c="sakura"], .jp-bg[data-c="momo"], .jp-bg[data-c="mizuasagi"], .jp-bg[data-c="wakaba"] { color:#111; }
 .jp-bg[data-c="ai"], .jp-bg[data-c="kon"], .jp-bg[data-c="kurenai"], .jp-bg[data-c="murasaki"] { color:#fff; }
 
 @layer base {
-  html, body {
+  html, body { min-height: 100%; }
+}    
     background-color: #EDCBB0;   /* 米色 */
     color: #111827;              /* 保持良好對比（Tailwind slate-900） */
   }
