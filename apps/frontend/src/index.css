@@ -46,7 +46,7 @@
 
 @layer base {
   html, body {
-    background-color: #f7e7cd;   /* 米色 */
+    background-color: #EDCBB0;   /* 米色 */
     color: #111827;              /* 保持良好對比（Tailwind slate-900） */
   }
 }
