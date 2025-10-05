@@ -9,56 +9,39 @@ import { fetchQuestions as _fetchQuestions } from "../lib/api";
    - [c=ai]文字[/c]  → <span style="color:var(--c-ai)">文字</span>
    - [bgc=ai]文字[/bgc] → <span class="jp-bg" data-c="ai" style="background:var(--c-ai)">文字</span>
 ----------------------------------------------------------- */
+// 放在 QuizPage.tsx 頂部：imports 之後
 function preprocessBBCodeToHTML(input?: string): string {
   let t = input ?? "";
 
-  // 舊寫法別名 → 日系色名
+  // 舊寫法 → 統一成 [c=token]
   t = t
     .replace(/\[red\](.*?)\[\/red\]/gis, "[c=kurenai]$1[/c]")
     .replace(/\[blue\](.*?)\[\/blue\]/gis, "[c=ai]$1[/c]")
     .replace(/\[green\](.*?)\[\/green\]/gis, "[c=wakaba]$1[/c]")
-    .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]");
+    .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]")
+    // 新增：直接色名標籤
+    .replace(/\[orange\](.*?)\[\/orange\]/gis, "[c=orange]$1[/c]")
+    .replace(/\[purple\](.*?)\[\/purple\]/gis, "[c=purple]$1[/c]")
+    .replace(/\[bgorange\](.*?)\[\/bgorange\]/gis, "[bgc=orange]$1[/bgc]")
+    .replace(/\[bgpurple\](.*?)\[\/bgpurple\]/gis, "[bgc=purple]$1[/bgc]");
 
-  t = t
-    .replace(/\[c=orange\](.*?)\[\/c\]/gis, "[c=orange]$1[/c]") // 保留語法，下面會轉 <span>
-    .replace(/\[c=purple\](.*?)\[\/c\]/gis, "[c=purple]$1[/c]")
-    .replace(/\[bgc=orange\](.*?)\[\/bgc\]/gis, "[bgc=orange]$1[/bgc]")
-    .replace(/\[bgc=purple\](.*?)\[\/bgc\]/gis, "[bgc=purple]$1[/bgc]");
- 
-
-  // 粗體/斜體/底線/刪除線（常見 BBCode）
-  t = t
-    .replace(/\[b\](.*?)\[\/b\]/gis, "<strong>$1</strong>")
-    .replace(/\[i\](.*?)\[\/i\]/gis, "<em>$1</em>")
-    .replace(/\[u\](.*?)\[\/u\]/gis, "<u>$1</u>")
-    .replace(/\[del\](.*?)\[\/del\]/gis, "<del>$1</del>");
-
-  // 動態字色
-  t = t.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis, (_m, token, body) =>
-    `<span style="color:var(--c-${token})">${body}</span>`
+  // 動態字色 / 底色
+  t = t.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis,
+    (_m, token, body) => `<span style="color:var(--c-${token})">${body}</span>`
   );
-
-  // 底色
-  t = t.replace(/\[bgc=([a-z0-9_-]+)\](.*?)\[\/bgc\]/gis, (_m, token, body) =>
-    `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
+  t = t.replace(/\[bgc=([a-z0-9_-]+)\](.*?)\[\/bgc\]/gis,
+    (_m, token, body) => `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
   );
-
-  // 字級
-  t = t.replace(/\[size=(\d+)\](.*?)\[\/size\]/gis, (_m, n, s) =>
-    `<span style="font-size:${Number(n)}px">${s}</span>`
-  );
-
-  // 上標 / 下標
-  t = t
-    .replace(/\[sup\](.*?)\[\/sup\]/gis, `<span style="vertical-align:super;font-size:.75em">$1</span>`)
-    .replace(/\[sub\](.*?)\[\/sub\]/gis, `<span style="vertical-align:sub;font-size:.75em">$1</span>`);
 
   return t;
 }
 
-// 給 <option> / 純文字環境用：移除 BBCode / HTML
-function stripBBCode(input?: string) {
-  const t = preprocessBBCodeToHTML(input);
+function renderContent(text?: string) {
+  if (!text) return null;
+  const html = preprocessBBCodeToHTML(text);
+  return <span dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
   return t
     .replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "")
     .replace(/<[^>]+>/g, "")
