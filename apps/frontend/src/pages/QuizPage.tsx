@@ -2,6 +2,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fetchQuestions as _fetchQuestions } from "../lib/api";
+import { renderContent, preprocessBBCodeToHTML } from "../lib/bbcode";
+
 
 /* -----------------------------------------------------------
    BBCode 預處理（動態色名 + 常用語法）→ 直接輸出 HTML
