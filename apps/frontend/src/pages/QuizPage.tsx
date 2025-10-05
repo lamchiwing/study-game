@@ -1,53 +1,54 @@
 // apps/frontend/src/pages/QuizPage.tsx
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import parse from "bbcode-to-react";
+import parser from "bbcode-to-react";
 import { fetchQuestions as _fetchQuestions } from "../lib/api";
 
 /* -----------------------------------------------------------
    BBCode 預處理（動態色名 + 常用語法）
    - 在全域 CSS（如 index.css）定義 :root { --c-ai: #2A4B8D; ... }
-   - 文字色：[c=ai]文字[/c] → color:var(--c-ai)
-   - 底色：[bgc=ai]文字[/bgc] → background:var(--c-ai) + .jp-bg
+   - 文字色：[c=ai]文字[/c] → [color=var(--c-ai)]文字[/color]
+   - 底色：[bgc=ai]文字[/bgc] → [color=var(--c-ai);background:var(--c-ai);class=jp-bg]文字[/color]
 ----------------------------------------------------------- */
 function preprocessBBCode(input?: string): string {
   let text = input ?? "";
 
-  // 舊寫法別名 → 動態色名
+  // 舊寫法別名 → 日系色名
   text = text
-    .replace(/\[red\](.*?)\[\/red\]/gis, "[c=red]$1[/c]")
-    .replace(/\[blue\](.*?)\[\/blue\]/gis, "[c=blue]$1[/c]")
-    .replace(/\[green\](.*?)\[\/green\]/gis, "[c=green]$1[/c]")
-    .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]"); // yellow → 山吹（示例）
+    .replace(/\[red\](.*?)\[\/red\]/gis, "[c=kurenai]$1[/c]")
+    .replace(/\[blue\](.*?)\[\/blue\]/gis, "[c=ai]$1[/c]")
+    .replace(/\[green\](.*?)\[\/green\]/gis, "[c=wakaba]$1[/c]")
+    .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]");
 
-  // 動態字色 / 底色
-  text = text.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis, (_m, token, body) =>
-    `<span style="color:var(--c-${token})">${body}</span>`
-  );
-  text = text.replace(/\[bgc=([a-z0-9_-]+)\](.*?)\[\/bgc\]/gis, (_m, token, body) =>
-    `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
-  );
+  // 動態字色
+  text = text.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis, (_m, token, body) => {
+    return `[color=var(--c-${token})]${body}[/color]`;
+  });
 
-  // 可選：字級（px）
-  text = text.replace(/\[size=(\d+)\](.*?)\[\/size\]/gis, (_m, n, s) =>
-    `<span style="font-size:${Number(n)}px">${s}</span>`
-  );
+  // 底色
+  text = text.replace(/\[bgc=([a-z0-9_-]+)\](.*?)\[\/bgc\]/gis, (_m, token, body) => {
+    return `[color=var(--c-${token});background:var(--c-${token});class=jp-bg;data-c=${token}]${body}[/color]`;
+  });
 
-  // 可選：上/下標
+  // 字級（可選）
+  text = text.replace(/\[size=(\d+)\](.*?)\[\/size\]/gis, (_m, n, s) => {
+    return `[color=inherit;font-size:${Number(n)}px]${s}[/color]`;
+  });
+
+  // 上標 / 下標
   text = text
-    .replace(/\[sup\](.*?)\[\/sup\]/gis, `<span style="vertical-align:super;font-size:.75em">$1</span>`)
-    .replace(/\[sub\](.*?)\[\/sub\]/gis, `<span style="vertical-align:sub;font-size:.75em">$1</span>`);
+    .replace(/\[sup\](.*?)\[\/sup\]/gis, `[color=inherit;vertical-align:super;font-size:.75em]$1[/color]`)
+    .replace(/\[sub\](.*?)\[\/sub\]/gis, `[color=inherit;vertical-align:sub;font-size:.75em]$1[/color]`);
 
   return text;
 }
 
-// 給 <option> / 純文字環境用：移除 BBCode / HTML
+// 給 <option> / 純文字環境用：移除 BBCode
 function stripBBCode(input?: string) {
   const t = preprocessBBCode(input);
   return t
-    .replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "")               // 任何殘留 BBCode
-    .replace(/<\/?(?:span|div|ruby|rt|strong|em|u|del)[^>]*>/gi, "") // 我們產生的簡單標籤
-    .replace(/<[^>]+>/g, "")                              // 其他 HTML
+    .replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "")
+    .replace(/<[^>]+>/g, "")
     .trim();
 }
 
@@ -57,7 +58,6 @@ function renderContent(text?: string) {
   const bb = preprocessBBCode(text);
   return <span>{parser.toReact(bb)}</span>;
 }
-
 
 // ========== 正規化資料模型 ==========
 type Raw = any;
@@ -76,7 +76,7 @@ type QMatch = QBase & {
   type: "match";
   left: string[];
   right: string[];
-  answerMap: number[]; // left[i] 對應 right[ answerMap[i] ]
+  answerMap: number[];
 };
 
 type NormQ = QMCQ | QTF | QFill | QMatch;
@@ -93,7 +93,7 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     explain: raw.explain ?? raw.explanation,
   };
 
-  // MATCH：pairs JSON 或 left/right/answerMap
+  // MATCH
   if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
     try {
       const arr = typeof raw.pairs === "string" ? JSON.parse(raw.pairs) : (raw.pairs as any[]);
@@ -106,7 +106,7 @@ function normalizeOne(raw: Raw, i: number): NormQ {
       );
       return { ...base, type: "match", left, right, answerMap };
     } catch {
-      /* fallthrough */
+      /* ignore */
     }
   }
   if (Array.isArray(raw.left) && Array.isArray(raw.right) && Array.isArray(raw.answerMap)) {
@@ -119,7 +119,7 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     };
   }
 
-  // TF：顯式 tf 或 answer 為 true/false/t/f
+  // TF
   const A = up(raw.answer);
   if (
     typeHint === "tf" ||
@@ -135,7 +135,7 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     return { ...base, type: "tf", answerBool };
   }
 
-  // FILL：沒有選項，但有答案陣列/多個答案
+  // FILL
   const hasChoices =
     (Array.isArray(raw.choices) && raw.choices.length > 0) ||
     ["choiceA", "choiceB", "choiceC", "choiceD"].some((k) => raw[k]);
@@ -149,7 +149,7 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     return { ...base, type: "fill", acceptable };
   }
 
-  // 預設 MCQ
+  // MCQ
   const choices: string[] = Array.isArray(raw.choices)
     ? raw.choices
     : ["choiceA", "choiceB", "choiceC", "choiceD"].map((k) => raw[k]).filter(Boolean);
@@ -171,12 +171,11 @@ function normalizeList(raw: unknown): NormQ[] {
 // ========== 判斷正確 ==========
 function isCorrect(q: NormQ, ans: any): boolean {
   switch (q.type) {
-    case "mcq": {
+    case "mcq":
       if (ans == null || typeof ans !== "number") return false;
       if (q.answerLetter) return "ABCD".indexOf(q.answerLetter) === ans;
       if (q.answerText) return normStr(q.answerText) === normStr(q.choices[ans] ?? "");
       return false;
-    }
     case "tf":
       return typeof ans === "boolean" && ans === q.answerBool;
     case "fill":
@@ -195,13 +194,11 @@ export default function QuizPage() {
   const [loading, setLoading] = useState(true);
   const [apiUrl, setApiUrl] = useState<string | undefined>();
   const [debug, setDebug] = useState<string | undefined>();
-
-  // 答案狀態
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState<any[]>([]);
   const [done, setDone] = useState(false);
 
-  // 讀題目（兼容 fetchQuestions 兩種回傳型態）
+  // 讀題目
   useEffect(() => {
     if (!slug) {
       setQuestions([]);
@@ -213,7 +210,6 @@ export default function QuizPage() {
     (async () => {
       try {
         const ret: any = await _fetchQuestions(slug);
-        // 兼容：若回 {list, usedUrl, debug}
         const list = normalizeList(ret?.list ?? ret);
         setQuestions(list);
         setAnswers(
@@ -239,14 +235,12 @@ export default function QuizPage() {
     })();
   }, [slug]);
 
-  // 計分
   const { score, total } = useMemo(() => {
     const totalQ = questions.length;
     const s = questions.reduce((acc, q, i) => acc + (isCorrect(q, answers[i]) ? 1 : 0), 0);
     return { score: s, total: totalQ };
   }, [questions, answers]);
 
-  // Handlers
   const pickMCQ = (i: number) =>
     setAnswers((prev) => {
       const next = prev.slice();
@@ -290,25 +284,13 @@ export default function QuizPage() {
     setDone(false);
   };
 
-  // ===== 畫面狀態 =====
   if (loading) return <div className="p-6">Loading…</div>;
 
   if (!questions.length) {
     return (
       <div className="p-6 space-y-3">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
-          <Link to="/packs" className="text-sm underline">
-            ← Back to Packs
-          </Link>
-        </div>
+        <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
         <p>No questions.</p>
-        {(apiUrl || debug) && (
-          <div className="text-xs text-gray-500 break-all">
-            source: {apiUrl ?? "N/A"}
-            {debug ? <> · debug: {debug}</> : null}
-          </div>
-        )}
       </div>
     );
   }
@@ -317,157 +299,36 @@ export default function QuizPage() {
     const percent = total ? Math.round((score / total) * 100) : 0;
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-5">
-        <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Result</h1>
-          <Link to="/packs" className="text-sm underline">
-            ← Back to Packs
-          </Link>
-        </div>
-        {(apiUrl || debug) && (
-          <div className="text-xs text-gray-500 break-all">
-            source: {apiUrl ?? "N/A"}
-            {debug ? <> · debug: {debug}</> : null}
-          </div>
-        )}
+        <h1 className="text-2xl font-semibold">Result</h1>
         <div className="text-lg">
           Score: <span className="font-semibold">{score}</span> / {total} ({percent}%)
         </div>
-
-        {/* 詳解清單 */}
-        <div className="space-y-3">
-          {questions.map((q, i) => {
-            const ok = isCorrect(q, answers[i]);
-            return (
-              <div
-                key={q.id ?? i}
-                className={`rounded border p-4 ${
-                  ok ? "border-emerald-400 bg-emerald-50" : "border-red-300 bg-red-50"
-                }`}
-              >
-                <div className="mb-1 text-sm text-gray-500">Q{i + 1}</div>
-                <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
-
-                <div className="text-sm">
-                  你的答案：{" "}
-                  {(() => {
-                    const a = answers[i];
-                    switch (q.type) {
-                      case "mcq":
-                        return a != null ? (
-                          <>
-                            {["A", "B", "C", "D"][a as number]}.{" "}
-                            {renderContent(q.choices[a as number])}
-                          </>
-                        ) : (
-                          <em>—</em>
-                        );
-                      case "tf":
-                        return a == null ? <em>—</em> : a ? "True" : "False";
-                      case "fill":
-                        return String(a ?? "").trim() ? renderContent(String(a)) : <em>—</em>;
-                      case "match":
-                        return (
-                          <ul className="mt-1 list-disc pl-5">
-                            {q.left.map((L, li) => {
-                              const ri = (a as Array<number | null>)[li];
-                              const R = ri != null ? q.right[ri] : "—";
-                              return (
-                                <li key={li}>
-                                  {renderContent(L)} {" → "} {renderContent(R)}
-                                </li>
-                              );
-                            })}
-                          </ul>
-                        );
-                    }
-                  })()}
-                </div>
-
-                {!ok && (
-                  <div className="mt-2 text-sm">
-                    正確答案：{" "}
-                    {q.type === "mcq" &&
-                      (q.answerLetter ? (
-                        <>
-                          {q.answerLetter}.{" "}
-                          {renderContent(q.choices["ABCD".indexOf(q.answerLetter)])}
-                        </>
-                      ) : (
-                        renderContent(
-                          q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ??
-                            ""
-                        )
-                      ))}
-                    {q.type === "tf" && (q.answerBool ? "True" : "False")}
-                    {q.type === "fill" && q.acceptable.join(" | ")}
-                    {q.type === "match" && (
-                      <ul className="mt-1 list-disc pl-5">
-                        {q.left.map((L, li) => {
-                          const ri = q.answerMap[li];
-                          const R = q.right[ri];
-                          return (
-                            <li key={li}>
-                              {renderContent(L)} {" → "} {renderContent(R)}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                )}
-
-                {q.explain ? (
-                  <div className="mt-2 text-sm text-gray-600">
-                    解釋：{renderContent(q.explain)}
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
-
         <div className="flex gap-2">
           <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">
             Restart
           </button>
           <Link to="/packs" className="rounded border px-3 py-2">
-            ← Back to Packs
+            ← Back
           </Link>
         </div>
       </div>
     );
   }
 
-  // 題目畫面
   const q = questions[idx]!;
   const a = answers[idx];
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
-          {(apiUrl || debug) && (
-            <div className="text-xs text-gray-500 break-all">
-              source: {apiUrl ?? "N/A"}
-              {debug ? <> · debug: {debug}</> : null}
-            </div>
-          )}
-        </div>
-        <Link to="/packs" className="text-sm underline">
-          ← Back to Packs
-        </Link>
-      </div>
-
+      <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
       <div className="text-sm text-gray-500">
         Question {idx + 1} / {questions.length}
       </div>
 
       <div className="rounded-lg border p-5">
         <div className="mb-3 font-medium">{renderContent(q.stem)}</div>
-        {q.image ? <img src={q.image} alt="" className="mb-4 max-h-72 rounded" /> : null}
+        {q.image && <img src={q.image} alt="" className="mb-4 max-h-72 rounded" />}
 
-        {/* 互動區：依題型渲染 */}
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
@@ -512,14 +373,12 @@ export default function QuizPage() {
         )}
 
         {q.type === "fill" && (
-          <div className="flex gap-2">
-            <input
-              value={a as string}
-              onChange={(e) => fillText(e.target.value)}
-              placeholder="你的答案…"
-              className="w-full rounded border px-3 py-2"
-            />
-          </div>
+          <input
+            value={a as string}
+            onChange={(e) => fillText(e.target.value)}
+            placeholder="你的答案…"
+            className="w-full rounded border px-3 py-2"
+          />
         )}
 
         {q.type === "match" && (
@@ -562,15 +421,6 @@ export default function QuizPage() {
         >
           ← Prev
         </button>
-        <div className="text-sm text-gray-600">
-          {q.type === "fill"
-            ? String(a ?? "").trim()
-              ? "已填寫"
-              : "請填寫答案"
-            : a == null || (Array.isArray(a) && a.some((x) => x == null))
-            ? "請選擇答案"
-            : "已選擇"}
-        </div>
         <button onClick={nextQ} className="rounded bg-black px-3 py-2 text-white">
           {idx < questions.length - 1 ? "Next →" : "Finish ✅"}
         </button>
