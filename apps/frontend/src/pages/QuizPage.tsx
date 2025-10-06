@@ -72,39 +72,56 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     explain: raw.explain ?? raw.explanation,
   };
 
-  // MATCH（高韌性解析）
+  // MATCH（超高韌性解析）
   if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
     try {
       let s: any = raw.pairs;
 
       if (Array.isArray(s)) {
-        // ok
+        // 已是陣列
       } else if (typeof s === "string") {
         s = s.trim();
-        if (s.startsWith("'") && s.endsWith("'")) s = s.slice(1, -1); // 去單引號殼
-        if (s.includes('""')) s = s.replace(/""/g, '"');              // CSV 內部 "" → "
+
+        // 去外層單引號殼
+        if (s.startsWith("'") && s.endsWith("'")) s = s.slice(1, -1);
+
+        // 常見轉義還原
+        s = s
+          .replace(/&quot;/g, '"') // HTML entity
+          .replace(/&#34;/g, '"')  // HTML numeric entity
+          .replace(/\\"/g, '"')    // backslash-escaped
+          .replace(/""/g, '"');    // CSV double-quote
+
+        // 先 parse 一次
         s = JSON.parse(s);
-        if (typeof s === "string" && s.trim().startsWith("[")) s = JSON.parse(s); // 雙重 JSON
+
+        // 若還是字串（雙重 JSON）
+        if (typeof s === "string" && s.trim().startsWith("[")) {
+          s = JSON.parse(s);
+        }
       }
 
       const okArray =
-        Array.isArray(s) && s.every((x) => x && typeof x === "object" && "left" in x && "right" in x);
+        Array.isArray(s) &&
+        s.every((x) => x && typeof x === "object" && "left" in x && "right" in x);
 
       if (okArray) {
         const arr = s as Array<{ left: string; right: string }>;
         const left = arr.map((p) => p.left);
         const right = arr.map((p) => p.right);
         const answerMap = left.map((L) =>
-          right.findIndex((R) => normStr(R) === normStr((arr.find((x) => x.left === L) as any)?.right))
+          right.findIndex(
+            (R) => normStr(R) === normStr((arr.find((x) => x.left === L) as any)?.right)
+          )
         );
         return { ...base, type: "match", left, right, answerMap };
       }
     } catch {
-      // fallthrough
+      // 失敗則走備援
     }
   }
 
-  // 備援：管線字串 left/right/answerMap
+  // 備援 1：管線字串 left/right/answerMap
   if (
     (typeof raw.left === "string" && typeof raw.right === "string") ||
     typeof raw.answerMap === "string"
@@ -128,7 +145,7 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     }
   }
 
-  // 原生陣列分支（若後端就給陣列）
+  // 備援 2：原生陣列
   if (Array.isArray(raw.left) && Array.isArray(raw.right) && Array.isArray(raw.answerMap)) {
     return {
       ...base,
@@ -310,9 +327,7 @@ export default function QuizPage() {
       <div className="p-6 space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
-          <Link to="/packs" className="text-sm underline">
-            ← Back to Packs
-          </Link>
+          <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
         </div>
         <p>No questions.</p>
         {(apiUrl || debug) && (
@@ -331,9 +346,7 @@ export default function QuizPage() {
       <div className="p-6 max-w-3xl mx-auto space-y-5">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Result</h1>
-          <Link to="/packs" className="text-sm underline">
-            ← Back to Packs
-          </Link>
+          <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
         </div>
         {(apiUrl || debug) && (
           <div className="text-xs text-gray-500 break-all">
@@ -358,8 +371,7 @@ export default function QuizPage() {
                 <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
 
                 <div className="text-sm">
-                  你的答案：
-                  {" "}
+                  你的答案：{" "}
                   {(() => {
                     const a = answers[i];
                     switch (q.type) {
@@ -397,11 +409,13 @@ export default function QuizPage() {
                   <div className="mt-2 text-sm">
                     正確答案：{" "}
                     {q.type === "mcq" &&
-                      (q.answerLetter
-                        ? `${q.answerLetter}. ${preprocessBBCodeToHTML(q.choices["ABCD".indexOf(q.answerLetter)])}`
-                        : preprocessBBCodeToHTML(
-                            q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ?? ""
-                          ))}
+                      (q.answerLetter ? (
+                        <>
+                          {q.answerLetter}. {renderContent(q.choices["ABCD".indexOf(q.answerLetter)])}
+                        </>
+                      ) : (
+                        renderContent(q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ?? "")
+                      ))}
                     {q.type === "tf" && (q.answerBool ? "True" : "False")}
                     {q.type === "fill" && q.acceptable.join(" | ")}
                     {q.type === "match" && (
@@ -420,7 +434,9 @@ export default function QuizPage() {
                   </div>
                 )}
 
-                {q.explain ? <div className="mt-2 text-sm text-gray-600">解釋：{renderContent(q.explain)}</div> : null}
+                {q.explain ? (
+                  <div className="mt-2 text-sm text-gray-600">解釋：{renderContent(q.explain)}</div>
+                ) : null}
               </div>
             );
           })}
