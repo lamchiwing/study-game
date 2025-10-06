@@ -28,6 +28,9 @@ function preprocessBBCodeToHTML(input?: string): string {
     `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
   );
 
+  // 只在 UI 渲染時移除「（測試別名 …）」註記（若你想保留，刪掉這行）
+  t = t.replace(/（\s*測試別名[^）]*）/g, "");
+
   return t;
 }
 
@@ -72,7 +75,7 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     explain: raw.explain ?? raw.explanation,
   };
 
-  // MATCH（超高韌性解析）
+  // MATCH（超高韌性解析 + base64 容錯）
   if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
     try {
       let s: any = raw.pairs;
@@ -80,22 +83,33 @@ function normalizeOne(raw: Raw, i: number): NormQ {
       if (Array.isArray(s)) {
         // 已是陣列
       } else if (typeof s === "string") {
-        s = s.trim();
+        let txt = s.trim();
 
         // 去外層單引號殼
-        if (s.startsWith("'") && s.endsWith("'")) s = s.slice(1, -1);
+        if (txt.startsWith("'") && txt.endsWith("'")) txt = txt.slice(1, -1);
 
-        // 常見轉義還原
-        s = s
-          .replace(/&quot;/g, '"') // HTML entity
-          .replace(/&#34;/g, '"')  // HTML numeric entity
-          .replace(/\\"/g, '"')    // backslash-escaped
-          .replace(/""/g, '"');    // CSV double-quote
+        // 若看起來像 base64（僅 Base64 字元且長度 %4==0），嘗試解碼
+        const maybeB64 = /^[A-Za-z0-9+/=\r\n]+$/.test(txt) && txt.length % 4 === 0;
+        if (maybeB64) {
+          try {
+            const decoded = atob(txt.replace(/\s+/g, ""));
+            if (decoded.trim().startsWith("[") || decoded.trim().startsWith("{")) {
+              txt = decoded;
+            }
+          } catch {}
+        }
+
+        // 常見轉義還原（HTML / CSV / 反斜線）
+        txt = txt
+          .replace(/&quot;/g, '"')
+          .replace(/&#34;/g, '"')
+          .replace(/\\"/g, '"')
+          .replace(/""/g, '"');
 
         // 先 parse 一次
-        s = JSON.parse(s);
+        s = JSON.parse(txt);
 
-        // 若還是字串（雙重 JSON）
+        // 若還是字串（雙重 JSON）再 parse
         if (typeof s === "string" && s.trim().startsWith("[")) {
           s = JSON.parse(s);
         }
@@ -475,6 +489,17 @@ export default function QuizPage() {
         <div className="mb-3 font-medium">{renderContent(q.stem)}</div>
         {q.image ? <img src={q.image} alt="" className="mb-4 max-h-72 rounded" /> : null}
 
+        {/* Debug：配對題資料為空時印原始片段（上線可移除） */}
+        {q.type === "match" && q.left.length === 0 && (
+          <div className="text-xs text-red-500 mb-2 break-all">
+            ⚠️ match 資料為空，debug：
+            <div>pairs: {String((questions as any)[idx]?.pairs ?? "").slice(0, 200)}</div>
+            <div>left:  {String((questions as any)[idx]?.left  ?? "").slice(0, 200)}</div>
+            <div>right: {String((questions as any)[idx]?.right ?? "").slice(0, 200)}</div>
+            <div>answerMap: {String((questions as any)[idx]?.answerMap ?? "").slice(0, 200)}</div>
+          </div>
+        )}
+
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
@@ -513,7 +538,7 @@ export default function QuizPage() {
           </div>
         )}
 
-        {q.type === "match" && (
+        {q.type === "match" && q.left.length > 0 && (
           <div className="grid gap-3">
             {q.left.map((L, li) => {
               const chosen = (a as Array<number | null>)[li];
