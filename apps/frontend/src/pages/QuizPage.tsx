@@ -91,29 +91,67 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     explain: raw.explain ?? raw.explanation,
   };
 
-  // MATCH
-  if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
-    try {
-      const arr = typeof raw.pairs === "string" ? JSON.parse(raw.pairs) : (raw.pairs as any[]);
-      const left = arr.map((p: any) => p.left);
-      const right = arr.map((p: any) => p.right);
-      const answerMap = left.map((L: string) =>
-        right.findIndex(
-          (R: string) => normStr(R) === normStr(arr.find((x: any) => x.left === L)?.right)
+  // MATCH（更耐髒的解析）
+if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
+  try {
+    let s: any = raw.pairs;
+
+    // 先拿到字串
+    if (Array.isArray(s)) {
+      // 已經是陣列（後端直接給 JSON），直接用
+    } else if (typeof s === "string") {
+      s = s.trim();
+
+      // 去掉頭尾單引號
+      if (s.startsWith("'") && s.endsWith("'")) s = s.slice(1, -1);
+
+      // CSV 轉義的 "" → "
+      if (s.includes('""')) s = s.replace(/""/g, '"');
+
+      // 先 parse 一次
+      s = JSON.parse(s);
+
+      // 若還是字串（常見「雙重字串化」），再 parse 一次
+      if (typeof s === "string" && s.trim().startsWith("[")) {
+        s = JSON.parse(s);
+      }
+    }
+
+    // 檢查長得像 [{left,right},...]
+    const okArray = Array.isArray(s) && s.every(
+      (x) => x && typeof x === "object" && "left" in x && "right" in x
+    );
+
+    if (okArray) {
+      const arr = s as Array<{left:string; right:string}>;
+      const left = arr.map(p => p.left);
+      const right = arr.map(p => p.right);
+      const answerMap = left.map(L =>
+        right.findIndex(R =>
+          normStr(R) === normStr((arr.find(x => x.left === L) as any)?.right)
         )
       );
       return { ...base, type: "match", left, right, answerMap };
-    } catch {}
+    }
+  } catch {}
+}
+
+// 兼容備援：若 CSV 以管線字串給 left/right/answerMap
+if (
+  (typeof raw.left === "string" && typeof raw.right === "string") ||
+  (typeof raw.answerMap === "string")
+) {
+  const left = String(raw.left ?? "").split("|").map(s => s.trim()).filter(Boolean);
+  const right = String(raw.right ?? "").split("|").map(s => s.trim()).filter(Boolean);
+  const answerMap = String(raw.answerMap ?? "")
+    .split("|").map(s => s.trim()).filter(Boolean).map(Number);
+  if (left.length && right.length && answerMap.length === left.length) {
+    return { ...base, type: "match", left, right, answerMap };
   }
-  if (Array.isArray(raw.left) && Array.isArray(raw.right) && Array.isArray(raw.answerMap)) {
-    return {
-      ...base,
-      type: "match",
-      left: raw.left,
-      right: raw.right,
-      answerMap: raw.answerMap.map((n: any) => Number(n)),
-    };
-  }
+}
+
+// （保留你原本的 Array.isArray(raw.left/right/answerMap) 分支也沒問題）
+
 
   // TF
   const A = up(raw.answer);
