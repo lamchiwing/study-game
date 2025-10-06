@@ -1,63 +1,50 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fetchQuestions as _fetchQuestions } from "../lib/api";
-// remove these because we define them below:
-// import { renderContent, preprocessBBCodeToHTML } from "../lib/bbcode";
 
-/** ---- BBCode → HTML (supports [red]/[blue]/[green]/[yellow] and [purple]/[orange]) ---- */
+/* -----------------------------------------------------------
+   BBCode → HTML（含 legacy 標籤 -> [c=token]）
+   需在 index.css 設定 :root { --c-ai:..., --c-yamabuki:..., ... }
+----------------------------------------------------------- */
 function preprocessBBCodeToHTML(input?: string): string {
   let t = input ?? "";
 
-  // legacy tags → unified [c=token]
+  // legacy → 統一為 [c=token] / [bgc=token]
   t = t
-    .replace(/\[red\](.*?)\[\/red\]/gis,    "[c=kurenai]$1[/c]")
-    .replace(/\[blue\](.*?)\[\/blue\]/gis,  "[c=ai]$1[/c]")
+    .replace(/\[red\](.*?)\[\/red\]/gis, "[c=kurenai]$1[/c]")
+    .replace(/\[blue\](.*?)\[\/blue\]/gis, "[c=ai]$1[/c]")
     .replace(/\[green\](.*?)\[\/green\]/gis, "[c=wakaba]$1[/c]")
-    .replace(/\[yellow\](.*?)\[\/yellow\]/gis,"[c=yamabuki]$1[/c]")
-    .replace(/\[orange\](.*?)\[\/orange\]/gis,"[c=orange]$1[/c]")
-    .replace(/\[purple\](.*?)\[\/purple\]/gis,"[c=purple]$1[/c]")
-    .replace(/\[bgorange\](.*?)\[\/bgorange\]/gis,"[bgc=orange]$1[/bgc]")
-    .replace(/\[bgpurple\](.*?)\[\/bgpurple\]/gis,"[bgc=purple]$1[/bgc]");
+    .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]")
+    .replace(/\[orange\](.*?)\[\/orange\]/gis, "[c=orange]$1[/c]")
+    .replace(/\[purple\](.*?)\[\/purple\]/gis, "[c=purple]$1[/c]")
+    .replace(/\[bgorange\](.*?)\[\/bgorange\]/gis, "[bgc=orange]$1[/bgc]")
+    .replace(/\[bgpurple\](.*?)\[\/bgpurple\]/gis, "[bgc=purple]$1[/bgc]");
 
-  // dynamic color / background color
-  t = t.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis,
-    (_m, token, body) => `<span style="color:var(--c-${token})">${body}</span>`
+  // 動態字色 / 底色
+  t = t.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis, (_m, token, body) =>
+    `<span style="color:var(--c-${token})">${body}</span>`
   );
-  t = t.replace(/\[bgc=([a-z0-9_-]+)\](.*?)\[\/bgc\]/gis,
-    (_m, token, body) => `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
+  t = t.replace(/\[bgc=([a-z0-9_-]+)\](.*?)\[\/bgc\]/gis, (_m, token, body) =>
+    `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
   );
 
   return t;
 }
 
+// 純文字（給 <option> 等）
 function stripBBCode(input?: string): string {
-  const t = input ?? "";
-  return t
-    .replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "") // remove [bbcode]
-    .replace(/<[^>]+>/g, "")                // remove html if any
-    .trim();
+  const t = preprocessBBCodeToHTML(input);
+  return t.replace(/<[^>]+>/g, "").replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "").trim();
 }
 
+// 安全渲染
 function renderContent(text?: string) {
   if (!text) return null;
   const html = preprocessBBCodeToHTML(text);
   return <span dangerouslySetInnerHTML={{ __html: html }} />;
 }
 
-  return t
-    .replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "")
-    .replace(/<[^>]+>/g, "")
-    .trim();
-}
-
-// ========== 可插拔渲染 ==========
-function renderContent(text?: string) {
-  if (!text) return null;
-  const html = preprocessBBCodeToHTML(text);
-  return <span dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
-// ========== 正規化資料模型 ==========
+/* ---------------- 型別 ---------------- */
 type Raw = any;
 type QBase = { id: string | number; stem: string; image?: string; explain?: string };
 
@@ -67,21 +54,15 @@ type QMCQ = QBase & {
   answerLetter?: "A" | "B" | "C" | "D";
   answerText?: string;
 };
-
 type QTF = QBase & { type: "tf"; answerBool: boolean };
 type QFill = QBase & { type: "fill"; acceptable: string[] };
-type QMatch = QBase & {
-  type: "match";
-  left: string[];
-  right: string[];
-  answerMap: number[];
-};
-
+type QMatch = QBase & { type: "match"; left: string[]; right: string[]; answerMap: number[] };
 type NormQ = QMCQ | QTF | QFill | QMatch;
 
 const normStr = (s?: string) => (s ?? "").trim().toLowerCase();
 const up = (s?: string) => (s ?? "").trim().toUpperCase();
 
+/* ---------------- 正規化 ---------------- */
 function normalizeOne(raw: Raw, i: number): NormQ {
   const typeHint = String(raw.type ?? raw.kind ?? raw.questionType ?? "").toLowerCase();
   const base: QBase = {
@@ -91,67 +72,72 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     explain: raw.explain ?? raw.explanation,
   };
 
-  // MATCH（更耐髒的解析）
-if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
-  try {
-    let s: any = raw.pairs;
+  // MATCH（高韌性解析）
+  if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
+    try {
+      let s: any = raw.pairs;
 
-    // 先拿到字串
-    if (Array.isArray(s)) {
-      // 已經是陣列（後端直接給 JSON），直接用
-    } else if (typeof s === "string") {
-      s = s.trim();
-
-      // 去掉頭尾單引號
-      if (s.startsWith("'") && s.endsWith("'")) s = s.slice(1, -1);
-
-      // CSV 轉義的 "" → "
-      if (s.includes('""')) s = s.replace(/""/g, '"');
-
-      // 先 parse 一次
-      s = JSON.parse(s);
-
-      // 若還是字串（常見「雙重字串化」），再 parse 一次
-      if (typeof s === "string" && s.trim().startsWith("[")) {
+      if (Array.isArray(s)) {
+        // ok
+      } else if (typeof s === "string") {
+        s = s.trim();
+        if (s.startsWith("'") && s.endsWith("'")) s = s.slice(1, -1); // 去單引號殼
+        if (s.includes('""')) s = s.replace(/""/g, '"');              // CSV 內部 "" → "
         s = JSON.parse(s);
+        if (typeof s === "string" && s.trim().startsWith("[")) s = JSON.parse(s); // 雙重 JSON
       }
+
+      const okArray =
+        Array.isArray(s) && s.every((x) => x && typeof x === "object" && "left" in x && "right" in x);
+
+      if (okArray) {
+        const arr = s as Array<{ left: string; right: string }>;
+        const left = arr.map((p) => p.left);
+        const right = arr.map((p) => p.right);
+        const answerMap = left.map((L) =>
+          right.findIndex((R) => normStr(R) === normStr((arr.find((x) => x.left === L) as any)?.right))
+        );
+        return { ...base, type: "match", left, right, answerMap };
+      }
+    } catch {
+      // fallthrough
     }
+  }
 
-    // 檢查長得像 [{left,right},...]
-    const okArray = Array.isArray(s) && s.every(
-      (x) => x && typeof x === "object" && "left" in x && "right" in x
-    );
+  // 備援：管線字串 left/right/answerMap
+  if (
+    (typeof raw.left === "string" && typeof raw.right === "string") ||
+    typeof raw.answerMap === "string"
+  ) {
+    const left = String(raw.left ?? "")
+      .split("|")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const right = String(raw.right ?? "")
+      .split("|")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const answerMap = String(raw.answerMap ?? "")
+      .split("|")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map(Number);
 
-    if (okArray) {
-      const arr = s as Array<{left:string; right:string}>;
-      const left = arr.map(p => p.left);
-      const right = arr.map(p => p.right);
-      const answerMap = left.map(L =>
-        right.findIndex(R =>
-          normStr(R) === normStr((arr.find(x => x.left === L) as any)?.right)
-        )
-      );
+    if (left.length && right.length && answerMap.length === left.length) {
       return { ...base, type: "match", left, right, answerMap };
     }
-  } catch {}
-}
-
-// 兼容備援：若 CSV 以管線字串給 left/right/answerMap
-if (
-  (typeof raw.left === "string" && typeof raw.right === "string") ||
-  (typeof raw.answerMap === "string")
-) {
-  const left = String(raw.left ?? "").split("|").map(s => s.trim()).filter(Boolean);
-  const right = String(raw.right ?? "").split("|").map(s => s.trim()).filter(Boolean);
-  const answerMap = String(raw.answerMap ?? "")
-    .split("|").map(s => s.trim()).filter(Boolean).map(Number);
-  if (left.length && right.length && answerMap.length === left.length) {
-    return { ...base, type: "match", left, right, answerMap };
   }
-}
 
-// （保留你原本的 Array.isArray(raw.left/right/answerMap) 分支也沒問題）
-
+  // 原生陣列分支（若後端就給陣列）
+  if (Array.isArray(raw.left) && Array.isArray(raw.right) && Array.isArray(raw.answerMap)) {
+    return {
+      ...base,
+      type: "match",
+      left: raw.left,
+      right: raw.right,
+      answerMap: raw.answerMap.map((n: any) => Number(n)),
+    };
+  }
 
   // TF
   const A = up(raw.answer);
@@ -164,12 +150,11 @@ if (
     A === "FALSE" ||
     typeof raw.answerBool === "boolean"
   ) {
-    const answerBool =
-      typeof raw.answerBool === "boolean" ? raw.answerBool : A === "T" || A === "TRUE";
+    const answerBool = typeof raw.answerBool === "boolean" ? raw.answerBool : A === "T" || A === "TRUE";
     return { ...base, type: "tf", answerBool };
   }
 
-  // FILL
+  // FILL（CSV：answer 欄用 pipe 連結 "yellow|黃色"）
   const hasChoices =
     (Array.isArray(raw.choices) && raw.choices.length > 0) ||
     ["choiceA", "choiceB", "choiceC", "choiceD"].some((k) => raw[k]);
@@ -202,7 +187,7 @@ function normalizeList(raw: unknown): NormQ[] {
   return list.map(normalizeOne);
 }
 
-// ========== 判斷正確 ==========
+/* ---------------- 判題 ---------------- */
 function isCorrect(q: NormQ, ans: any): boolean {
   switch (q.type) {
     case "mcq":
@@ -219,7 +204,7 @@ function isCorrect(q: NormQ, ans: any): boolean {
   }
 }
 
-// ========== 頁面主體 ==========
+/* ---------------- 頁面 ---------------- */
 export default function QuizPage() {
   const [sp] = useSearchParams();
   const slug = sp.get("slug") ?? "";
@@ -367,9 +352,7 @@ export default function QuizPage() {
             return (
               <div
                 key={q.id ?? i}
-                className={`rounded border p-4 ${
-                  ok ? "border-emerald-400 bg-emerald-50" : "border-red-300 bg-red-50"
-                }`}
+                className={`rounded border p-4 ${ok ? "border-emerald-400 bg-emerald-50" : "border-red-300 bg-red-50"}`}
               >
                 <div className="mb-1 text-sm text-gray-500">Q{i + 1}</div>
                 <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
@@ -383,8 +366,7 @@ export default function QuizPage() {
                       case "mcq":
                         return a != null ? (
                           <>
-                            {["A", "B", "C", "D"][a as number]}.{" "}
-                            {renderContent(q.choices[a as number])}
+                            {["A", "B", "C", "D"][a as number]}. {renderContent(q.choices[a as number])}
                           </>
                         ) : (
                           <em>—</em>
@@ -413,16 +395,12 @@ export default function QuizPage() {
 
                 {!ok && (
                   <div className="mt-2 text-sm">
-                    正確答案：
-                    {" "}
+                    正確答案：{" "}
                     {q.type === "mcq" &&
                       (q.answerLetter
-                        ? `${q.answerLetter}. ${preprocessBBCodeToHTML(
-                            q.choices["ABCD".indexOf(q.answerLetter)]
-                          )}`
+                        ? `${q.answerLetter}. ${preprocessBBCodeToHTML(q.choices["ABCD".indexOf(q.answerLetter)])}`
                         : preprocessBBCodeToHTML(
-                            q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ??
-                              ""
+                            q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ?? ""
                           ))}
                     {q.type === "tf" && (q.answerBool ? "True" : "False")}
                     {q.type === "fill" && q.acceptable.join(" | ")}
@@ -442,23 +420,15 @@ export default function QuizPage() {
                   </div>
                 )}
 
-                {q.explain ? (
-                  <div className="mt-2 text-sm text-gray-600">
-                    解釋：{renderContent(q.explain)}
-                  </div>
-                ) : null}
+                {q.explain ? <div className="mt-2 text-sm text-gray-600">解釋：{renderContent(q.explain)}</div> : null}
               </div>
             );
           })}
         </div>
 
         <div className="flex gap-2">
-          <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">
-            Restart
-          </button>
-          <Link to="/packs" className="rounded border px-3 py-2">
-            ← Back to Packs
-          </Link>
+          <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">Restart</button>
+          <Link to="/packs" className="rounded border px-3 py-2">← Back to Packs</Link>
         </div>
       </div>
     );
@@ -480,20 +450,15 @@ export default function QuizPage() {
             </div>
           )}
         </div>
-        <Link to="/packs" className="text-sm underline">
-          ← Back to Packs
-        </Link>
+        <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
       </div>
 
-      <div className="text-sm text-gray-500">
-        Question {idx + 1} / {questions.length}
-      </div>
+      <div className="text-sm text-gray-500">Question {idx + 1} / {questions.length}</div>
 
       <div className="rounded-lg border p-5">
         <div className="mb-3 font-medium">{renderContent(q.stem)}</div>
         {q.image ? <img src={q.image} alt="" className="mb-4 max-h-72 rounded" /> : null}
 
-        {/* 互動區：依題型渲染 */}
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
@@ -502,9 +467,7 @@ export default function QuizPage() {
                 <button
                   key={i}
                   onClick={() => pickMCQ(i)}
-                  className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${
-                    active ? "border-black ring-1 ring-black" : ""
-                  }`}
+                  className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${active ? "border-black ring-1 ring-black" : ""}`}
                 >
                   <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-semibold">
                     {"ABCD"[i]}
@@ -518,22 +481,8 @@ export default function QuizPage() {
 
         {q.type === "tf" && (
           <div className="flex gap-2">
-            <button
-              onClick={() => pickTF(true)}
-              className={`rounded border px-3 py-2 ${
-                a === true ? "border-black ring-1 ring-black" : ""
-              }`}
-            >
-              True
-            </button>
-            <button
-              onClick={() => pickTF(false)}
-              className={`rounded border px-3 py-2 ${
-                a === false ? "border-black ring-1 ring-black" : ""
-              }`}
-            >
-              False
-            </button>
+            <button onClick={() => pickTF(true)}  className={`rounded border px-3 py-2 ${a === true ? "border-black ring-1 ring-black" : ""}`}>True</button>
+            <button onClick={() => pickTF(false)} className={`rounded border px-3 py-2 ${a === false ? "border-black ring-1 ring-black" : ""}`}>False</button>
           </div>
         )}
 
@@ -552,9 +501,7 @@ export default function QuizPage() {
           <div className="grid gap-3">
             {q.left.map((L, li) => {
               const chosen = (a as Array<number | null>)[li];
-              const used = new Set(
-                (a as Array<number | null>).filter((x, j) => j !== li && x != null) as number[]
-              );
+              const used = new Set((a as Array<number | null>).filter((x, j) => j !== li && x != null) as number[]);
               return (
                 <div key={li} className="flex items-center gap-3">
                   <div className="flex-1 rounded border p-2">{renderContent(L)}</div>
@@ -562,9 +509,7 @@ export default function QuizPage() {
                   <select
                     className="w-1/2 rounded border p-2"
                     value={chosen ?? ""}
-                    onChange={(e) =>
-                      pickMatch(li, e.target.value === "" ? null : Number(e.target.value))
-                    }
+                    onChange={(e) => pickMatch(li, e.target.value === "" ? null : Number(e.target.value))}
                   >
                     <option value="">請選擇</option>
                     {q.right.map((R, ri) => (
@@ -581,18 +526,10 @@ export default function QuizPage() {
       </div>
 
       <div className="flex items-center justify-between">
-        <button
-          onClick={prevQ}
-          disabled={idx === 0}
-          className="rounded border px-3 py-2 disabled:opacity-50"
-        >
-          ← Prev
-        </button>
+        <button onClick={prevQ} disabled={idx === 0} className="rounded border px-3 py-2 disabled:opacity-50">← Prev</button>
         <div className="text-sm text-gray-600">
           {q.type === "fill"
-            ? String(a ?? "").trim()
-              ? "已填寫"
-              : "請填寫答案"
+            ? String(a ?? "").trim() ? "已填寫" : "請填寫答案"
             : a == null || (Array.isArray(a) && a.some((x) => x == null))
             ? "請選擇答案"
             : "已選擇"}
