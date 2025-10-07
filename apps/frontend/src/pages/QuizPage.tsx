@@ -28,7 +28,7 @@ function preprocessBBCodeToHTML(input?: string): string {
     `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
   );
 
-  // 只在 UI 渲染時移除「（測試別名 …）」註記（若你想保留，刪掉這行）
+  // 移除「（測試別名 …）」註記（若想保留，刪掉這行）
   t = t.replace(/（\s*測試別名[^）]*）/g, "");
 
   return t;
@@ -59,7 +59,13 @@ type QMCQ = QBase & {
 };
 type QTF = QBase & { type: "tf"; answerBool: boolean };
 type QFill = QBase & { type: "fill"; acceptable: string[] };
-type QMatch = QBase & { type: "match"; left: string[]; right: string[]; answerMap: number[] };
+type QMatch = QBase & {
+  type: "match";
+  left: string[];
+  right: string[];
+  answerMap: number[];
+  _debug?: { pairs: string; left: any; right: any; answerMap: any };
+};
 type NormQ = QMCQ | QTF | QFill | QMatch;
 
 const normStr = (s?: string) => (s ?? "").trim().toLowerCase();
@@ -75,10 +81,9 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     explain: raw.explain ?? raw.explanation,
   };
 
-  // ← 在這裡加
+  // 偵測「配對徵兆」＋備份原始片段（給 debug）
   const matchHint =
     typeHint === "match" || !!raw.pairs || !!raw.left || !!raw.right || !!raw.answerMap;
-
   const rawSnapshot = {
     pairs: typeof raw.pairs === "string" ? raw.pairs : JSON.stringify(raw.pairs ?? ""),
     left: raw.left,
@@ -96,15 +101,21 @@ function normalizeOne(raw: Raw, i: number): NormQ {
       } else if (typeof s === "string") {
         let txt = s.trim();
 
-        // 去外層單引號殼
+        // 外層單引號殼
         if (txt.startsWith("'") && txt.endsWith("'")) txt = txt.slice(1, -1);
 
-        // 若看起來像 base64（僅 Base64 字元且長度 %4==0），嘗試解碼
+        // 看起來像 base64？先試解
         const maybeB64 = /^[A-Za-z0-9+/=\r\n]+$/.test(txt) && txt.length % 4 === 0;
         if (maybeB64) {
           try {
-            const decoded = atob(txt.replace(/\s+/g, ""));
-            if (decoded.trim().startsWith("[") || decoded.trim().startsWith("{")) {
+            const b64 = txt.replace(/\s+/g, "");
+            let decoded: string | null = null;
+            try {
+              if (typeof globalThis !== "undefined" && typeof (globalThis as any).atob === "function") {
+                decoded = (globalThis as any).atob(b64);
+              }
+            } catch {}
+            if (decoded && (decoded.trim().startsWith("[") || decoded.trim().startsWith("{"))) {
               txt = decoded;
             }
           } catch {}
@@ -181,9 +192,10 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     };
   }
 
+  // 保底：有配對徵兆但解析失敗，也回傳 match（讓 UI 顯示 debug）
   if (matchHint) {
     return { ...base, type: "match", left: [], right: [], answerMap: [], _debug: rawSnapshot } as any;
-  } 
+  }
 
   // TF
   const A = up(raw.answer);
@@ -505,18 +517,18 @@ export default function QuizPage() {
         {q.image ? <img src={q.image} alt="" className="mb-4 max-h-72 rounded" /> : null}
 
         {/* Debug：只要是 match 就顯示原始片段（上線時可移除） */}
-      {q.type === "match" && (q as any)._debug && (
-         <div className="text-xs text-red-500 mb-2">
-          <div className="font-semibold">⚠️ match 原始片段（前 200 字）：</div>
-          <pre className="whitespace-pre-wrap break-all">
-      pairs: {String((q as any)._debug?.pairs ?? "").slice(0, 200)}
-      left: {String((q as any)._debug?.left ?? "").slice(0, 200)}
-      right: {String((q as any)._debug?.right ?? "").slice(0, 200)}
-      answerMap: {String((q as any)._debug?.answerMap ?? "").slice(0, 200)}
-          </pre>
-        </div>
-      )}
- 
+        {q.type === "match" && (q as any)._debug && (
+          <div className="text-xs text-red-500 mb-2">
+            <div className="font-semibold">⚠️ match 原始片段（前 200 字）：</div>
+            <pre className="whitespace-pre-wrap break-all">
+pairs: {String((q as any)._debug?.pairs ?? "").slice(0, 200)}
+left: {String((q as any)._debug?.left ?? "").slice(0, 200)}
+right: {String((q as any)._debug?.right ?? "").slice(0, 200)}
+answerMap: {String((q as any)._debug?.answerMap ?? "").slice(0, 200)}
+            </pre>
+          </div>
+        )}
+
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
