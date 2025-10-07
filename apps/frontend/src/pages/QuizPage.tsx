@@ -91,20 +91,17 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     answerMap: raw.answerMap,
   };
 
-  // MATCH（超高韌性解析 + base64 容錯）
-  if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
+    // MATCH（超高韌性解析 + base64 容錯 + 多結構/多鍵名支援）
+  if (Array.isArray(raw.pairs) || typeof raw.pairs === "string" || (raw.pairs && typeof raw.pairs === "object")) {
     try {
       let s: any = raw.pairs;
 
-      if (Array.isArray(s)) {
-        // 已是陣列
-      } else if (typeof s === "string") {
+      // 1) 若是字串：先做去殼/解碼/還原/JSON.parse（含雙重 JSON 與 base64）
+      if (typeof s === "string") {
         let txt = s.trim();
 
-        // 外層單引號殼
         if (txt.startsWith("'") && txt.endsWith("'")) txt = txt.slice(1, -1);
 
-        // 看起來像 base64？先試解
         const maybeB64 = /^[A-Za-z0-9+/=\r\n]+$/.test(txt) && txt.length % 4 === 0;
         if (maybeB64) {
           try {
@@ -121,36 +118,69 @@ function normalizeOne(raw: Raw, i: number): NormQ {
           } catch {}
         }
 
-        // 常見轉義還原（HTML / CSV / 反斜線）
         txt = txt
           .replace(/&quot;/g, '"')
           .replace(/&#34;/g, '"')
           .replace(/\\"/g, '"')
           .replace(/""/g, '"');
 
-        // 先 parse 一次
         s = JSON.parse(txt);
-
-        // 若還是字串（雙重 JSON）再 parse
         if (typeof s === "string" && s.trim().startsWith("[")) {
           s = JSON.parse(s);
         }
       }
 
-      const okArray =
-        Array.isArray(s) &&
-        s.every((x) => x && typeof x === "object" && "left" in x && "right" in x);
+      // 2) 若是「物件形」：支援 { left:[...], right:[...], map|answerMap|index:[...] }
+      if (s && typeof s === "object" && !Array.isArray(s)) {
+        const leftArr  = s.left  ?? s.Left  ?? s.l ?? s.L;
+        const rightArr = s.right ?? s.Right ?? s.r ?? s.R ?? s.value ?? s.values;
+        const mapArr   = s.answerMap ?? s.map ?? s.index ?? s.match ?? s.mapping;
 
-      if (okArray) {
-        const arr = s as Array<{ left: string; right: string }>;
-        const left = arr.map((p) => p.left);
-        const right = arr.map((p) => p.right);
-        const answerMap = left.map((L) =>
-          right.findIndex(
-            (R) => normStr(R) === normStr((arr.find((x) => x.left === L) as any)?.right)
-          )
-        );
-        return { ...base, type: "match", left, right, answerMap };
+        if (Array.isArray(leftArr) && Array.isArray(rightArr)) {
+          const left  = leftArr.map(String);
+          const right = rightArr.map(String);
+          let answerMap: number[];
+
+          if (Array.isArray(mapArr)) {
+            answerMap = mapArr.map((n: any) => Number(n));
+          } else {
+            // 沒有 map：就用值等值比對自動算
+            answerMap = left.map((L: string) =>
+              right.findIndex((R: string) => normStr(R) === normStr(L))
+            );
+          }
+
+          if (left.length && right.length && answerMap.length === left.length) {
+            return { ...base, type: "match", left, right, answerMap };
+          }
+        }
+      }
+
+      // 3) 若是「陣列形」：容忍元素鍵名大小寫/縮寫
+      if (Array.isArray(s)) {
+        const pick = (obj: any, keys: string[]) => {
+          for (const k of keys) if (obj && obj[k] != null) return obj[k];
+          return undefined;
+        };
+
+        // 支援元素如：{left,right} / {Left,Right} / {l,r} / {from,to} / {key,value}
+        const arrNorm = s
+          .map((x) => {
+            const L = pick(x, ["left", "Left", "l", "L", "from", "key", "src"]);
+            const R = pick(x, ["right", "Right", "r", "R", "to", "value", "dst"]);
+            if (L == null || R == null) return null;
+            return { left: String(L), right: String(R) };
+          })
+          .filter(Boolean) as Array<{ left: string; right: string }>;
+
+        if (arrNorm.length) {
+          const left = arrNorm.map((p) => p.left);
+          const right = arrNorm.map((p) => p.right);
+          const answerMap = left.map((L) =>
+            right.findIndex((R) => normStr(R) === normStr((arrNorm.find((x) => x.left === L) as any)?.right))
+          );
+          return { ...base, type: "match", left, right, answerMap };
+        }
       }
     } catch {
       // 失敗則走備援
@@ -181,16 +211,17 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     }
   }
 
-  // 備援 2：原生陣列
+  // 備援 2：原生陣列（嚴格三欄）
   if (Array.isArray(raw.left) && Array.isArray(raw.right) && Array.isArray(raw.answerMap)) {
     return {
       ...base,
       type: "match",
-      left: raw.left,
-      right: raw.right,
+      left: raw.left.map(String),
+      right: raw.right.map(String),
       answerMap: raw.answerMap.map((n: any) => Number(n)),
     };
   }
+
 
   // 保底：有配對徵兆但解析失敗，也回傳 match（讓 UI 顯示 debug）
   if (matchHint) {
