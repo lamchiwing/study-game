@@ -84,15 +84,16 @@ def list_packs():
 @app.get("/quiz")
 @app.get("/api/quiz")
 def get_quiz(slug: str = Query("")):
+    # 前端預期根 key 為 "list"
     if not slug:
-        return JSONResponse({"questions": []}, media_type="application/json; charset=utf-8")
+        return JSONResponse({"list": []}, media_type="application/json; charset=utf-8")
 
     key = slug_to_key(slug)
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     except Exception:
         # 找不到檔案或權限問題 → 回空集合給前端顯示「No questions」
-        return JSONResponse({"questions": []}, media_type="application/json; charset=utf-8")
+        return JSONResponse({"list": []}, media_type="application/json; charset=utf-8")
 
     raw = obj["Body"].read()
     text = smart_decode(raw)
@@ -101,17 +102,31 @@ def get_quiz(slug: str = Query("")):
     qs = []
     for i, r in enumerate(rows, start=1):
         qs.append({
-            "id": r.get("id") or str(i),
+            "id":       r.get("id") or str(i),
+            "type":     r.get("type") or r.get("kind") or "",
             "question": r.get("question") or r.get("題目") or "",
-            "choiceA": r.get("choiceA") or r.get("A") or "",
-            "choiceB": r.get("choiceB") or r.get("B") or "",
-            "choiceC": r.get("choiceC") or r.get("C") or "",
-            "choiceD": r.get("choiceD") or r.get("D") or "",
-            "answer":  r.get("answer") or r.get("答案") or "",
-            "explain": r.get("explain") or r.get("解析") or "",
-            "type":    r.get("type") or r.get("kind") or "",
-            "pairs":   r.get("pairs") or "",
-            "image":   r.get("image") or "",
+            "choiceA":  r.get("choiceA") or r.get("A") or "",
+            "choiceB":  r.get("choiceB") or r.get("B") or "",
+            "choiceC":  r.get("choiceC") or r.get("C") or "",
+            "choiceD":  r.get("choiceD") or r.get("D") or "",
+            "answer":   r.get("answer")  or r.get("答案") or "",
+            "answers":  r.get("answers") or "",   # ← fill 題可用 pipe: yellow|黃色
+            "explain":  r.get("explain") or r.get("解析") or "",
+            "image":    r.get("image") or "",
+
+            # --- 配對題欄位：全部原樣透傳，讓前端的容錯解析去處理 ---
+            "pairs":     r.get("pairs") or r.get("Pairs") or "",
+            "left":      r.get("left") or r.get("Left") or "",
+            "right":     r.get("right") or r.get("Right") or "",
+            "answerMap": r.get("answerMap") or r.get("map") or r.get("index") or "",
         })
 
-    return JSONResponse({"questions": qs}, media_type="application/json; charset=utf-8")
+    # 前端會讀 ret.list（也會顯示 usedUrl/debug）
+    return JSONResponse(
+        {
+            "list": qs,
+            "usedUrl": f"s3://{S3_BUCKET}/{key}",
+            "debug": f"rows={len(qs)}",
+        },
+        media_type="application/json; charset=utf-8",
+    )
