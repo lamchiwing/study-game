@@ -75,6 +75,17 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     explain: raw.explain ?? raw.explanation,
   };
 
+  // ← 在這裡加
+  const matchHint =
+    typeHint === "match" || !!raw.pairs || !!raw.left || !!raw.right || !!raw.answerMap;
+
+  const rawSnapshot = {
+    pairs: typeof raw.pairs === "string" ? raw.pairs : JSON.stringify(raw.pairs ?? ""),
+    left: raw.left,
+    right: raw.right,
+    answerMap: raw.answerMap,
+  };
+
   // MATCH（超高韌性解析 + base64 容錯）
   if (Array.isArray(raw.pairs) || typeof raw.pairs === "string") {
     try {
@@ -169,6 +180,10 @@ function normalizeOne(raw: Raw, i: number): NormQ {
       answerMap: raw.answerMap.map((n: any) => Number(n)),
     };
   }
+
+  if (matchHint) {
+    return { ...base, type: "match", left: [], right: [], answerMap: [], _debug: rawSnapshot } as any;
+  } 
 
   // TF
   const A = up(raw.answer);
@@ -489,17 +504,19 @@ export default function QuizPage() {
         <div className="mb-3 font-medium">{renderContent(q.stem)}</div>
         {q.image ? <img src={q.image} alt="" className="mb-4 max-h-72 rounded" /> : null}
 
-        {/* Debug：配對題資料為空時印原始片段（上線可移除） */}
-        {q.type === "match" && q.left.length === 0 && (
-          <div className="text-xs text-red-500 mb-2 break-all">
-            ⚠️ match 資料為空，debug：
-            <div>pairs: {String((questions as any)[idx]?.pairs ?? "").slice(0, 200)}</div>
-            <div>left:  {String((questions as any)[idx]?.left  ?? "").slice(0, 200)}</div>
-            <div>right: {String((questions as any)[idx]?.right ?? "").slice(0, 200)}</div>
-            <div>answerMap: {String((questions as any)[idx]?.answerMap ?? "").slice(0, 200)}</div>
-          </div>
-        )}
-
+        {/* Debug：只要是 match 就顯示原始片段（上線時可移除） */}
+      {q.type === "match" && (q as any)._debug && (
+         <div className="text-xs text-red-500 mb-2">
+          <div className="font-semibold">⚠️ match 原始片段（前 200 字）：</div>
+          <pre className="whitespace-pre-wrap break-all">
+      pairs: {String((q as any)._debug?.pairs ?? "").slice(0, 200)}
+      left: {String((q as any)._debug?.left ?? "").slice(0, 200)}
+      right: {String((q as any)._debug?.right ?? "").slice(0, 200)}
+      answerMap: {String((q as any)._debug?.answerMap ?? "").slice(0, 200)}
+          </pre>
+        </div>
+      )}
+ 
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
