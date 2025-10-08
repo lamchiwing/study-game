@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { fetchQuestions as _fetchQuestions } from "../lib/api";
+import { motion, AnimatePresence } from "framer-motion";
 
 /* -----------------------------------------------------------
    BBCode → HTML（含 legacy 標籤 -> [c=token]）
@@ -28,7 +29,7 @@ function preprocessBBCodeToHTML(input?: string): string {
     `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
   );
 
-  // 移除「（測試別名 …）」註記（若想保留，刪掉這行）
+  // UI 顯示時移除「（測試別名…）」註記
   t = t.replace(/（\s*測試別名[^）]*）/g, "");
 
   return t;
@@ -59,13 +60,7 @@ type QMCQ = QBase & {
 };
 type QTF = QBase & { type: "tf"; answerBool: boolean };
 type QFill = QBase & { type: "fill"; acceptable: string[] };
-type QMatch = QBase & {
-  type: "match";
-  left: string[];
-  right: string[];
-  answerMap: number[];
-  _debug?: { pairs: string; left: any; right: any; answerMap: any };
-};
+type QMatch = QBase & { type: "match"; left: string[]; right: string[]; answerMap: number[] };
 type NormQ = QMCQ | QTF | QFill | QMatch;
 
 const normStr = (s?: string) => (s ?? "").trim().toLowerCase();
@@ -81,90 +76,51 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     explain: raw.explain ?? raw.explanation,
   };
 
-  // 偵測「配對徵兆」＋備份原始片段（給 debug）
-  const matchHint =
-    typeHint === "match" || !!raw.pairs || !!raw.left || !!raw.right || !!raw.answerMap;
-  const rawSnapshot = {
-    pairs: typeof raw.pairs === "string" ? raw.pairs : JSON.stringify(raw.pairs ?? ""),
-    left: raw.left,
-    right: raw.right,
-    answerMap: raw.answerMap,
-  };
-
-    // MATCH（超高韌性解析 + base64 容錯 + 多結構/多鍵名支援）
+  // 強韌 MATCH 解析：支援 pairs 為字串/陣列/物件，與多鍵名
   if (Array.isArray(raw.pairs) || typeof raw.pairs === "string" || (raw.pairs && typeof raw.pairs === "object")) {
     try {
       let s: any = raw.pairs;
 
-      // 1) 若是字串：先做去殼/解碼/還原/JSON.parse（含雙重 JSON 與 base64）
+      // 若是字串 → 去殼 / 還原 / 解析（含雙重 JSON、HTML 實體、CSV 轉義、base64）
       if (typeof s === "string") {
         let txt = s.trim();
-
         if (txt.startsWith("'") && txt.endsWith("'")) txt = txt.slice(1, -1);
-
         const maybeB64 = /^[A-Za-z0-9+/=\r\n]+$/.test(txt) && txt.length % 4 === 0;
         if (maybeB64) {
           try {
-            const b64 = txt.replace(/\s+/g, "");
-            let decoded: string | null = null;
-            try {
-              if (typeof globalThis !== "undefined" && typeof (globalThis as any).atob === "function") {
-                decoded = (globalThis as any).atob(b64);
-              }
-            } catch {}
-            if (decoded && (decoded.trim().startsWith("[") || decoded.trim().startsWith("{"))) {
-              txt = decoded;
-            }
+            // atob 在瀏覽器可用
+            const decoded = (typeof atob === "function") ? atob(txt.replace(/\s+/g, "")) : txt;
+            if (decoded.trim().startsWith("[") || decoded.trim().startsWith("{")) txt = decoded;
           } catch {}
         }
-
-        txt = txt
-          .replace(/&quot;/g, '"')
-          .replace(/&#34;/g, '"')
-          .replace(/\\"/g, '"')
-          .replace(/""/g, '"');
-
+        txt = txt.replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/\\"/g, '"').replace(/""/g, '"');
         s = JSON.parse(txt);
-        if (typeof s === "string" && s.trim().startsWith("[")) {
-          s = JSON.parse(s);
-        }
+        if (typeof s === "string" && s.trim().startsWith("[")) s = JSON.parse(s);
       }
 
-      // 2) 若是「物件形」：支援 { left:[...], right:[...], map|answerMap|index:[...] }
+      // 物件形：{ left:[...], right:[...], map/answerMap/index:[...] }
       if (s && typeof s === "object" && !Array.isArray(s)) {
         const leftArr  = s.left  ?? s.Left  ?? s.l ?? s.L;
         const rightArr = s.right ?? s.Right ?? s.r ?? s.R ?? s.value ?? s.values;
         const mapArr   = s.answerMap ?? s.map ?? s.index ?? s.match ?? s.mapping;
-
         if (Array.isArray(leftArr) && Array.isArray(rightArr)) {
           const left  = leftArr.map(String);
           const right = rightArr.map(String);
-          let answerMap: number[];
-
-          if (Array.isArray(mapArr)) {
-            answerMap = mapArr.map((n: any) => Number(n));
-          } else {
-            // 沒有 map：就用值等值比對自動算
-            answerMap = left.map((L: string) =>
-              right.findIndex((R: string) => normStr(R) === normStr(L))
-            );
-          }
-
-          if (left.length && right.length && answerMap.length === left.length) {
+          const answerMap = Array.isArray(mapArr)
+            ? mapArr.map((n: any) => Number(n))
+            : left.map((L: string) => right.findIndex((R: string) => normStr(R) === normStr(L)));
+          if (left.length && right.length && answerMap.length === left.length)
             return { ...base, type: "match", left, right, answerMap };
-          }
         }
       }
 
-      // 3) 若是「陣列形」：容忍元素鍵名大小寫/縮寫
+      // 陣列形：[{left,right}]（容忍大小寫與縮寫）
       if (Array.isArray(s)) {
-        const pick = (obj: any, keys: string[]) => {
-          for (const k of keys) if (obj && obj[k] != null) return obj[k];
+        const pick = (o: any, keys: string[]) => {
+          for (const k of keys) if (o && o[k] != null) return o[k];
           return undefined;
         };
-
-        // 支援元素如：{left,right} / {Left,Right} / {l,r} / {from,to} / {key,value}
-        const arrNorm = s
+        const arr = s
           .map((x) => {
             const L = pick(x, ["left", "Left", "l", "L", "from", "key", "src"]);
             const R = pick(x, ["right", "Right", "r", "R", "to", "value", "dst"]);
@@ -172,43 +128,26 @@ function normalizeOne(raw: Raw, i: number): NormQ {
             return { left: String(L), right: String(R) };
           })
           .filter(Boolean) as Array<{ left: string; right: string }>;
-
-        if (arrNorm.length) {
-          const left = arrNorm.map((p) => p.left);
-          const right = arrNorm.map((p) => p.right);
+        if (arr.length) {
+          const left = arr.map((p) => p.left);
+          const right = arr.map((p) => p.right);
           const answerMap = left.map((L) =>
-            right.findIndex((R) => normStr(R) === normStr((arrNorm.find((x) => x.left === L) as any)?.right))
+            right.findIndex((R) => normStr(R) === normStr((arr.find((x) => x.left === L) as any)?.right))
           );
           return { ...base, type: "match", left, right, answerMap };
         }
       }
-    } catch {
-      // 失敗則走備援
-    }
+    } catch {}
   }
 
   // 備援 1：管線字串 left/right/answerMap
-  if (
-    (typeof raw.left === "string" && typeof raw.right === "string") ||
-    typeof raw.answerMap === "string"
-  ) {
-    const left = String(raw.left ?? "")
-      .split("|")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const right = String(raw.right ?? "")
-      .split("|")
-      .map((s) => s.trim())
-      .filter(Boolean);
+  if ((typeof raw.left === "string" && typeof raw.right === "string") || typeof raw.answerMap === "string") {
+    const left = String(raw.left ?? "").split("|").map((s) => s.trim()).filter(Boolean);
+    const right = String(raw.right ?? "").split("|").map((s) => s.trim()).filter(Boolean);
     const answerMap = String(raw.answerMap ?? "")
-      .split("|")
-      .map((s) => s.trim())
-      .filter(Boolean)
-      .map(Number);
-
-    if (left.length && right.length && answerMap.length === left.length) {
+      .split("|").map((s) => s.trim()).filter(Boolean).map(Number);
+    if (left.length && right.length && answerMap.length === left.length)
       return { ...base, type: "match", left, right, answerMap };
-    }
   }
 
   // 備援 2：原生陣列（嚴格三欄）
@@ -222,38 +161,25 @@ function normalizeOne(raw: Raw, i: number): NormQ {
     };
   }
 
-
-  // 保底：有配對徵兆但解析失敗，也回傳 match（讓 UI 顯示 debug）
-  if (matchHint) {
-    return { ...base, type: "match", left: [], right: [], answerMap: [], _debug: rawSnapshot } as any;
-  }
-
   // TF
   const A = up(raw.answer);
   if (
-    typeHint === "tf" ||
-    typeHint === "truefalse" ||
-    A === "T" ||
-    A === "F" ||
-    A === "TRUE" ||
-    A === "FALSE" ||
+    typeHint === "tf" || typeHint === "truefalse" ||
+    A === "T" || A === "F" || A === "TRUE" || A === "FALSE" ||
     typeof raw.answerBool === "boolean"
   ) {
     const answerBool = typeof raw.answerBool === "boolean" ? raw.answerBool : A === "T" || A === "TRUE";
     return { ...base, type: "tf", answerBool };
   }
 
-  // FILL（CSV：answer 欄用 pipe 連結 "yellow|黃色"）
+  // FILL
   const hasChoices =
     (Array.isArray(raw.choices) && raw.choices.length > 0) ||
     ["choiceA", "choiceB", "choiceC", "choiceD"].some((k) => raw[k]);
   if (typeHint === "fill" || (!hasChoices && (raw.answer || raw.answers))) {
     const acceptable = Array.isArray(raw.answers)
       ? raw.answers.map(normStr)
-      : String(raw.answer ?? "")
-          .split("|")
-          .map(normStr)
-          .filter(Boolean);
+      : String(raw.answer ?? "").split("|").map(normStr).filter(Boolean);
     return { ...base, type: "fill", acceptable };
   }
 
@@ -271,8 +197,11 @@ function normalizeOne(raw: Raw, i: number): NormQ {
 }
 
 function normalizeList(raw: unknown): NormQ[] {
-  const list = Array.isArray(raw) ? raw : (raw as any)?.questions;
-  if (!Array.isArray(list)) return [];
+  const list =
+    Array.isArray(raw) ? raw :
+    Array.isArray((raw as any)?.list) ? (raw as any).list :
+    Array.isArray((raw as any)?.questions) ? (raw as any).questions :
+    [];
   return list.map(normalizeOne);
 }
 
@@ -307,6 +236,10 @@ export default function QuizPage() {
   const [answers, setAnswers] = useState<any[]>([]);
   const [done, setDone] = useState(false);
 
+  // 分數動畫：+1 浮現
+  const prevScoreRef = useRef(0);
+  const [popPlusOne, setPopPlusOne] = useState(false);
+
   useEffect(() => {
     if (!slug) {
       setQuestions([]);
@@ -325,7 +258,7 @@ export default function QuizPage() {
             if (q.type === "mcq") return null;
             if (q.type === "tf") return null;
             if (q.type === "fill") return "";
-            if (q.type === "match") return Array(q.left.length).fill(null);
+            if (q.type === "match") return Array((q as QMatch).left.length).fill(null);
             return null;
           })
         );
@@ -343,17 +276,26 @@ export default function QuizPage() {
     })();
   }, [slug]);
 
-  // ---------------- 計分 ----------------
+  // 計分（答對一題 +1）
   const { score, total } = useMemo(() => {
     if (!questions?.length) return { score: 0, total: 0 };
-
     let s = 0;
     for (let i = 0; i < questions.length; i++) {
-    if (isCorrect(questions[i], answers[i])) s += 1; // 答對一題 +1
-  }
+      if (isCorrect(questions[i], answers[i])) s += 1;
+    }
     return { score: s, total: questions.length };
   }, [questions, answers]);
- 
+
+  // 分數上升觸發 +1 動畫
+  useEffect(() => {
+    if (score > prevScoreRef.current) {
+      setPopPlusOne(true);
+      const t = setTimeout(() => setPopPlusOne(false), 600);
+      prevScoreRef.current = score;
+      return () => clearTimeout(t);
+    }
+    prevScoreRef.current = score;
+  }, [score]);
 
   const pickMCQ = (i: number) =>
     setAnswers((prev) => {
@@ -390,7 +332,7 @@ export default function QuizPage() {
         if (q.type === "mcq") return null;
         if (q.type === "tf") return null;
         if (q.type === "fill") return "";
-        if (q.type === "match") return Array(q.left.length).fill(null);
+        if (q.type === "match") return Array((q as QMatch).left.length).fill(null);
         return null;
       })
     );
@@ -422,16 +364,40 @@ export default function QuizPage() {
     const percent = total ? Math.round((score / total) * 100) : 0;
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-5">
+        {/* 簡易彩紙（emoji） */}
+        <div className="relative h-10">
+          <AnimatePresence>
+            {Array.from({ length: 12 }).map((_, i) => (
+              <motion.div
+                key={i}
+                initial={{ y: 0, opacity: 0, rotate: 0 }}
+                animate={{
+                  y: [0, -30 - Math.random() * 40],
+                  x: (Math.random() - 0.5) * 160,
+                  opacity: [0, 1, 0],
+                  rotate: (Math.random() - 0.5) * 120,
+                }}
+                transition={{ duration: 1.2 + Math.random() * 0.3, ease: "easeOut", delay: i * 0.03 }}
+                className="absolute left-1/2 top-1/2"
+              >
+                <span className="text-lg select-none">🎉</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Result</h1>
           <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
         </div>
+
         {(apiUrl || debug) && (
           <div className="text-xs text-gray-500 break-all">
             source: {apiUrl ?? "N/A"}
             {debug ? <> · debug: {debug}</> : null}
           </div>
         )}
+
         <div className="text-lg">
           Score: <span className="font-semibold">{score}</span> / {total} ({percent}%)
         </div>
@@ -458,9 +424,7 @@ export default function QuizPage() {
                           <>
                             {["A", "B", "C", "D"][a as number]}. {renderContent(q.choices[a as number])}
                           </>
-                        ) : (
-                          <em>—</em>
-                        );
+                        ) : (<em>—</em>);
                       case "tf":
                         return a == null ? <em>—</em> : a ? "True" : "False";
                       case "fill":
@@ -468,14 +432,10 @@ export default function QuizPage() {
                       case "match":
                         return (
                           <ul className="mt-1 list-disc pl-5">
-                            {q.left.map((L, li) => {
+                            {(q as QMatch).left.map((L, li) => {
                               const ri = (a as Array<number | null>)[li];
-                              const R = ri != null ? q.right[ri] : "—";
-                              return (
-                                <li key={li}>
-                                  {renderContent(L)} {" → "} {renderContent(R)}
-                                </li>
-                              );
+                              const R = ri != null ? (q as QMatch).right[ri] : "—";
+                              return <li key={li}>{renderContent(L)} {" → "} {renderContent(R)}</li>;
                             })}
                           </ul>
                         );
@@ -487,25 +447,18 @@ export default function QuizPage() {
                   <div className="mt-2 text-sm">
                     正確答案：{" "}
                     {q.type === "mcq" &&
-                      (q.answerLetter ? (
-                        <>
-                          {q.answerLetter}. {renderContent(q.choices["ABCD".indexOf(q.answerLetter)])}
-                        </>
-                      ) : (
-                        renderContent(q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ?? "")
-                      ))}
-                    {q.type === "tf" && (q.answerBool ? "True" : "False")}
-                    {q.type === "fill" && q.acceptable.join(" | ")}
+                      ((q as QMCQ).answerLetter
+                        ? <>{(q as QMCQ).answerLetter}. {renderContent(q.choices["ABCD".indexOf((q as QMCQ).answerLetter!)])}</>
+                        : renderContent(q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ?? "")
+                      )}
+                    {q.type === "tf" && ((q as QTF).answerBool ? "True" : "False")}
+                    {q.type === "fill" && (q as QFill).acceptable.join(" | ")}
                     {q.type === "match" && (
                       <ul className="mt-1 list-disc pl-5">
-                        {q.left.map((L, li) => {
-                          const ri = q.answerMap[li];
-                          const R = q.right[ri];
-                          return (
-                            <li key={li}>
-                              {renderContent(L)} {" → "} {renderContent(R)}
-                            </li>
-                          );
+                        {(q as QMatch).left.map((L, li) => {
+                          const ri = (q as QMatch).answerMap[li];
+                          const R = (q as QMatch).right[ri];
+                          return <li key={li}>{renderContent(L)} {" → "} {renderContent(R)}</li>;
                         })}
                       </ul>
                     )}
@@ -547,52 +500,100 @@ export default function QuizPage() {
         <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
       </div>
 
-      <div className="text-sm text-gray-500">Question {idx + 1} / {questions.length}</div>
+      {/* 進度條 + 分數徽章 */}
+      <div className="flex items-center justify-between">
+        {/* 進度條 */}
+        <div className="flex-1 mr-3">
+          <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+            <motion.div
+              className="h-2 bg-black"
+              initial={{ width: 0 }}
+              animate={{ width: `${(idx / Math.max(questions.length - 1, 1)) * 100}%` }}
+              transition={{ type: "spring", stiffness: 120, damping: 18 }}
+            />
+          </div>
+          <div className="mt-1 text-xs text-gray-500">
+            第 {idx + 1} / {questions.length} 題
+          </div>
+        </div>
+
+        {/* 分數徽章 + +1 浮現 */}
+        <motion.div
+          key={score}
+          initial={{ scale: 0.9, opacity: 0.6 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: "spring", stiffness: 200, damping: 12 }}
+          className="relative select-none"
+        >
+          <div className="rounded-full px-3 py-1 text-sm font-semibold border bg-white shadow-sm">
+            分數：{score} / {questions.length}
+          </div>
+          <AnimatePresence>
+            {popPlusOne && (
+              <motion.div
+                initial={{ y: 8, opacity: 0, scale: 0.9 }}
+                animate={{ y: -16, opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, y: -28 }}
+                transition={{ duration: 0.6 }}
+                className="absolute -right-3 -top-3 text-emerald-600 font-bold"
+              >
+                +1
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </div>
 
       <div className="rounded-lg border p-5">
         <div className="mb-3 font-medium">{renderContent(q.stem)}</div>
         {q.image ? <img src={q.image} alt="" className="mb-4 max-h-72 rounded" /> : null}
 
-        {/* Debug：只要是 match 就顯示原始片段（上線時可移除） */}
-        {q.type === "match" && (q as any)._debug && (
-          <div className="text-xs text-red-500 mb-2">
-            <div className="font-semibold">⚠️ match 原始片段（前 200 字）：</div>
-            <pre className="whitespace-pre-wrap break-all">
-pairs: {String((q as any)._debug?.pairs ?? "").slice(0, 200)}
-left: {String((q as any)._debug?.left ?? "").slice(0, 200)}
-right: {String((q as any)._debug?.right ?? "").slice(0, 200)}
-answerMap: {String((q as any)._debug?.answerMap ?? "").slice(0, 200)}
-            </pre>
-          </div>
-        )}
-
+        {/* MCQ */}
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
               const active = a === i;
               return (
-                <button
+                <motion.button
                   key={i}
                   onClick={() => pickMCQ(i)}
-                  className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${active ? "border-black ring-1 ring-black" : ""}`}
+                  whileTap={{ scale: 0.98 }}
+                  whileHover={{ scale: 1.01 }}
+                  className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${
+                    active ? "border-black ring-1 ring-black" : ""
+                  }`}
                 >
                   <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-semibold">
                     {"ABCD"[i]}
                   </span>
                   <span>{renderContent(text)}</span>
-                </button>
+                </motion.button>
               );
             })}
           </div>
         )}
 
+        {/* TF */}
         {q.type === "tf" && (
           <div className="flex gap-2">
-            <button onClick={() => pickTF(true)}  className={`rounded border px-3 py-2 ${a === true ? "border-black ring-1 ring-black" : ""}`}>True</button>
-            <button onClick={() => pickTF(false)} className={`rounded border px-3 py-2 ${a === false ? "border-black ring-1 ring-black" : ""}`}>False</button>
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={() => pickTF(true)}
+              className={`rounded border px-3 py-2 ${a === true ? "border-black ring-1 ring-black" : ""}`}
+            >
+              True
+            </motion.button>
+            <motion.button
+              whileTap={{ scale: 0.98 }}
+              onClick={() => pickTF(false)}
+              className={`rounded border px-3 py-2 ${a === false ? "border-black ring-1 ring-black" : ""}`}
+            >
+              False
+            </motion.button>
           </div>
         )}
 
+        {/* Fill */}
         {q.type === "fill" && (
           <div className="flex gap-2">
             <input
@@ -604,9 +605,10 @@ answerMap: {String((q as any)._debug?.answerMap ?? "").slice(0, 200)}
           </div>
         )}
 
-        {q.type === "match" && q.left.length > 0 && (
+        {/* Match */}
+        {q.type === "match" && (q as QMatch).left.length > 0 && (
           <div className="grid gap-3">
-            {q.left.map((L, li) => {
+            {(q as QMatch).left.map((L, li) => {
               const chosen = (a as Array<number | null>)[li];
               const used = new Set((a as Array<number | null>).filter((x, j) => j !== li && x != null) as number[]);
               return (
@@ -619,7 +621,7 @@ answerMap: {String((q as any)._debug?.answerMap ?? "").slice(0, 200)}
                     onChange={(e) => pickMatch(li, e.target.value === "" ? null : Number(e.target.value))}
                   >
                     <option value="">請選擇</option>
-                    {q.right.map((R, ri) => (
+                    {(q as QMatch).right.map((R, ri) => (
                       <option key={ri} value={ri} disabled={used.has(ri)}>
                         {stripBBCode(R)}
                       </option>
