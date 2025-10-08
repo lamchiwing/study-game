@@ -240,7 +240,9 @@ function pickN(list: any[], nMin = 10, nMax = 15) {
 /* ---------------- 頁面 ---------------- */
 export default function QuizPage() {
   const [sp] = useSearchParams();
-  const slug = sp.get("slug") ?? "";
+  // 取得 slug 時順手去掉前後空白
+  const slug = (sp.get("slug") ?? "").trim();
+ 
 
   const [questions, setQuestions] = useState<NormQ[]>([]);
   const [loading, setLoading] = useState(true);
