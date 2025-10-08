@@ -222,6 +222,21 @@ function isCorrect(q: NormQ, ans: any): boolean {
   }
 }
 
+// ---------------- 抽題工具方法（隨機取 10~15 題） ----------------
+function shuffleInPlace<T>(arr: T[]) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
+function pickN(list: any[], nMin = 10, nMax = 15) {
+  const n = Math.max(nMin, Math.min(nMax, Math.floor(nMin + Math.random() * (nMax - nMin + 1))));
+  const copy = list.slice();
+  shuffleInPlace(copy);
+  return copy.slice(0, Math.min(copy.length, n));
+}
+
+
 /* ---------------- 頁面 ---------------- */
 export default function QuizPage() {
   const [sp] = useSearchParams();
@@ -251,8 +266,17 @@ export default function QuizPage() {
     (async () => {
       try {
         const ret: any = await _fetchQuestions(slug);
-        const list = normalizeList(ret?.list ?? ret);
-        setQuestions(list);
+        const full = normalizeList(ret?.list ?? ret);
+
+      // 支援網址參數 n，例如 ?n=12
+        const nParam = Number(sp.get("n"));
+        const subset =
+          Number.isFinite(nParam) && nParam > 0
+            ? full.slice().sort(() => Math.random() - 0.5).slice(0, nParam)
+            : pickN(full, 10, 15);
+
+        setQuestions(subset);
+ 
         setAnswers(
           list.map((q) => {
             if (q.type === "mcq") return null;
