@@ -83,7 +83,26 @@ def list_packs():
 # ---------- get quiz ----------
 @app.get("/quiz")
 @app.get("/api/quiz")
-def get_quiz(slug: str = Query("")):
+def get_quiz(
+    slug: str = Query(""),
+    n: int | None = Query(None, description="精確抽幾題；若給 n，忽略 nmin/nmax"),
+    nmin: int = Query(10, description="隨機下限（含）"),
+    nmax: int = Query(15, description="隨機上限（含）"),
+    seed: str | None = Query(None, description="決定性洗牌種子（如 '2025-10-08' 或 'user123'）"),
+):
+    """
+    回傳格式：
+      {
+        "list": [...],            # 題目陣列（可能已經隨機抽樣）
+        "usedUrl": "s3://...csv",
+        "debug": "rows=..., picked=..., seed=..."
+      }
+    查詢參數：
+      - n:    精確抽幾題（>0 時優先）
+      - nmin: 隨機下限
+      - nmax: 隨機上限
+      - seed: 決定性洗牌（同 seed 會得到同順序）
+    """
     # 前端預期根 key 為 "list"
     if not slug:
         return JSONResponse({"list": []}, media_type="application/json; charset=utf-8")
@@ -98,7 +117,10 @@ def get_quiz(slug: str = Query("")):
     raw = obj["Body"].read()
     text = smart_decode(raw)
 
+    # 讀 CSV → rows (list[dict])
     rows = list(csv.DictReader(io.StringIO(text)))
+
+    # 映射為前端可吃的欄位；pairs/left/right/answerMap 原樣透傳
     qs = []
     for i, r in enumerate(rows, start=1):
         qs.append({
@@ -110,23 +132,55 @@ def get_quiz(slug: str = Query("")):
             "choiceC":  r.get("choiceC") or r.get("C") or "",
             "choiceD":  r.get("choiceD") or r.get("D") or "",
             "answer":   r.get("answer")  or r.get("答案") or "",
-            "answers":  r.get("answers") or "",   # ← fill 題可用 pipe: yellow|黃色
+            "answers":  r.get("answers") or "",   # fill 題 pipe：yellow|黃色
             "explain":  r.get("explain") or r.get("解析") or "",
             "image":    r.get("image") or "",
 
-            # --- 配對題欄位：全部原樣透傳，讓前端的容錯解析去處理 ---
+            # --- 配對題欄位（交給前端 normalizeOne 的容錯解析）---
             "pairs":     r.get("pairs") or r.get("Pairs") or "",
             "left":      r.get("left") or r.get("Left") or "",
             "right":     r.get("right") or r.get("Right") or "",
             "answerMap": r.get("answerMap") or r.get("map") or r.get("index") or "",
         })
 
-    # 前端會讀 ret.list（也會顯示 usedUrl/debug）
+    total = len(qs)
+    picked = total
+
+    # ---- 隨機抽題邏輯 ----
+    # 設定決定性亂數（可選）
+    if seed:
+        rnd = random.Random(str(seed))
+    else:
+        rnd = random
+
+    # 決定抽幾題
+    if isinstance(n, int) and n > 0:
+        k = max(1, min(n, total)) if total > 0 else 0
+    else:
+        lo = max(1, min(nmin, nmax)) if total > 0 else 0
+        hi = max(lo, nmax) if total > 0 else 0
+        k = rnd.randint(lo, hi) if total > 0 else 0
+        k = min(k, total)
+
+    # 只有題庫非空才洗牌/抽樣
+    if total > 0 and k > 0:
+        # 決定性打亂（若無 seed 就用全域亂數）
+        # 這裡用 copy 避免改動原 qs
+        qs_copy = qs[:]
+        rnd.shuffle(qs_copy)
+        qs = qs_copy[:k]
+        picked = len(qs)
+    else:
+        # 題庫為空或 k=0 → 回空陣列
+        qs = []
+
+    debug_msg = f"rows={total}, picked={picked}" + (f", seed={seed}" if seed else "")
+
     return JSONResponse(
         {
             "list": qs,
             "usedUrl": f"s3://{S3_BUCKET}/{key}",
-            "debug": f"rows={len(qs)}",
+            "debug": debug_msg,
         },
         media_type="application/json; charset=utf-8",
     )
