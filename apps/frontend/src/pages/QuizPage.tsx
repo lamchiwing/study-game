@@ -343,11 +343,17 @@ export default function QuizPage() {
     })();
   }, [slug]);
 
+  // ---------------- 計分 ----------------
   const { score, total } = useMemo(() => {
-    const totalQ = questions.length;
-    const s = questions.reduce((acc, q, i) => acc + (isCorrect(q, answers[i]) ? 1 : 0), 0);
-    return { score: s, total: totalQ };
+    if (!questions?.length) return { score: 0, total: 0 };
+
+    let s = 0;
+    for (let i = 0; i < questions.length; i++) {
+    if (isCorrect(questions[i], answers[i])) s += 1; // 答對一題 +1
+  }
+    return { score: s, total: questions.length };
   }, [questions, answers]);
+ 
 
   const pickMCQ = (i: number) =>
     setAnswers((prev) => {
