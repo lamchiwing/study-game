@@ -265,6 +265,7 @@ export default function QuizPage() {
     setDone(false);
     (async () => {
       try {
+        
         const ret: any = await _fetchQuestions(slug);
         const full = normalizeList(ret?.list ?? ret);
 
@@ -276,9 +277,9 @@ export default function QuizPage() {
             : pickN(full, 10, 15);
 
         setQuestions(subset);
- 
+
         setAnswers(
-          list.map((q) => {
+          subset.map((q) => {              // ✅ 改用 subset
             if (q.type === "mcq") return null;
             if (q.type === "tf") return null;
             if (q.type === "fill") return "";
@@ -286,6 +287,7 @@ export default function QuizPage() {
             return null;
           })
         );
+        
         setIdx(0);
         setApiUrl(ret?.usedUrl);
         setDebug(ret?.debug);
