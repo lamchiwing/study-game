@@ -1,15 +1,31 @@
 // apps/frontend/src/lib/api.ts
 export type Question = {
   id?: string | number;
-  question: string;
+  // 基本欄位
+  type?: string;
+  question?: string;  // or stem
+  explain?: string;
+  image?: string;
+
+  // MCQ
   choices?: string[];
   choiceA?: string;
   choiceB?: string;
   choiceC?: string;
   choiceD?: string;
   answer?: string;
-  explain?: string;
-  image?: string;
+
+  // Fill
+  answers?: string | string[];
+
+  // Match（全部透傳，交給 QuizPage 的 normalizeOne 處理）
+  pairs?: unknown;           // string | Array<{left:string; right:string}> | object
+  left?: string | string[];
+  right?: string | string[];
+  answerMap?: string | number[]; // 可能是 "0|1|2" 或 [0,1,2]
+
+  // 其他任何後端附帶欄位
+  [k: string]: any;
 };
 
 function normBase(s?: string) {
@@ -39,45 +55,42 @@ export async function fetchQuestions(
   for (const url of urls) {
     try {
       const r = await fetch(url, { credentials: "omit" });
-      if (r.status === 404) {
-        lastErr = `404 @ ${url}`;
-        continue;
-      }
-      if (!r.ok) {
-        lastErr = `${r.status} @ ${url}`;
-        continue;
-      }
-      // 有些時候後端 header 不標 JSON，也先取純文字再嘗試 parse
+      if (r.status === 404) { lastErr = `404 @ ${url}`; continue; }
+      if (!r.ok)           { lastErr = `${r.status} @ ${url}`; continue; }
+
+      // 有些時候後端 header 不標 JSON → 以文字讀入再 JSON.parse
       const text = await r.text();
+      let data: any;
       try {
-        const data = JSON.parse(text);
-        const arr = Array.isArray(data) ? data : data?.questions;
-        if (!Array.isArray(arr)) return { list: [], usedUrl: url, debug: "No array in payload" };
-        // 正規化 choiceA..D -> choices[]
-        const list = arr.map((raw: any, i: number) => {
-          const choices = Array.isArray(raw.choices)
-            ? raw.choices
-            : ["choiceA","choiceB","choiceC","choiceD"].map(k => raw[k]).filter(Boolean);
-          return {
-            id: raw.id ?? i,
-            question: raw.question ?? raw.stem ?? "",
-            choices,
-            choiceA: raw.choiceA, choiceB: raw.choiceB, choiceC: raw.choiceC, choiceD: raw.choiceD,
-            answer: raw.answer, explain: raw.explain, image: raw.image
-          } as Question;
-        });
-        return { list, usedUrl: url };
+        data = JSON.parse(text);
       } catch (e) {
-        // JSON 解析失敗，附上前 200 字 debug
         lastErr = `JSON parse failed @ ${url}: ${String(e)} ; sample=${text.slice(0,200)}`;
         continue;
       }
+
+      // 相容三種格式：直接陣列 / {list:[]} / {questions:[]}
+      const rawList =
+        Array.isArray(data) ? data :
+        Array.isArray(data?.list) ? data.list :
+        Array.isArray(data?.questions) ? data.questions :
+        null;
+
+      if (!Array.isArray(rawList)) {
+        return {
+          list: [],
+          usedUrl: url,
+          debug: `No array in payload (keys: ${Object.keys(data || {}).join(",")})`,
+        };
+      }
+
+      // 不做任何壓縮或欄位改名，**原樣透傳**給 QuizPage 的 normalizeOne
+      return { list: rawList as Question[], usedUrl: url, debug: data?.debug };
     } catch (e) {
       lastErr = `Network error @ ${url}: ${String(e)}`;
       continue;
     }
   }
-  // 全部失敗 → 回空陣列，附 debug
+
   console.warn("[fetchQuestions] all candidates failed:", lastErr);
   return { list: [], usedUrl: undefined, debug: lastErr };
 }
