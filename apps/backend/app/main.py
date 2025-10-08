@@ -81,6 +81,10 @@ def list_packs():
     return items
 
 # ---------- get quiz ----------
+# 需要在檔案頂部補上
+import random
+
+# ---------- get quiz ----------
 @app.get("/quiz")
 @app.get("/api/quiz")
 def get_quiz(
@@ -90,20 +94,8 @@ def get_quiz(
     nmax: int = Query(15, description="隨機上限（含）"),
     seed: str | None = Query(None, description="決定性洗牌種子（如 '2025-10-08' 或 'user123'）"),
 ):
-    """
-    回傳格式：
-      {
-        "list": [...],            # 題目陣列（可能已經隨機抽樣）
-        "usedUrl": "s3://...csv",
-        "debug": "rows=..., picked=..., seed=..."
-      }
-    查詢參數：
-      - n:    精確抽幾題（>0 時優先）
-      - nmin: 隨機下限
-      - nmax: 隨機上限
-      - seed: 決定性洗牌（同 seed 會得到同順序）
-    """
-    # 前端預期根 key 為 "list"
+    # 去前後空白，避免 ' chinese/...'
+    slug = (slug or "").strip()
     if not slug:
         return JSONResponse({"list": []}, media_type="application/json; charset=utf-8")
 
@@ -112,7 +104,8 @@ def get_quiz(
         obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     except Exception:
         # 找不到檔案或權限問題 → 回空集合給前端顯示「No questions」
-        return JSONResponse({"list": []}, media_type="application/json; charset=utf-8")
+        return JSONResponse({"list": [], "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": "s3 get_object failed"},
+                            media_type="application/json; charset=utf-8")
 
     raw = obj["Body"].read()
     text = smart_decode(raw)
@@ -148,39 +141,30 @@ def get_quiz(
 
     # ---- 隨機抽題邏輯 ----
     # 設定決定性亂數（可選）
-    if seed:
-        rnd = random.Random(str(seed))
-    else:
-        rnd = random
+    rnd = random.Random(str(seed)) if seed else random
 
     # 決定抽幾題
     if isinstance(n, int) and n > 0:
-        k = max(1, min(n, total)) if total > 0 else 0
+        k = min(max(1, n), total) if total > 0 else 0
     else:
-        lo = max(1, min(nmin, nmax)) if total > 0 else 0
+        lo = 1 if total > 0 else 0
+        lo = max(lo, min(nmin, nmax))
         hi = max(lo, nmax) if total > 0 else 0
         k = rnd.randint(lo, hi) if total > 0 else 0
         k = min(k, total)
 
     # 只有題庫非空才洗牌/抽樣
     if total > 0 and k > 0:
-        # 決定性打亂（若無 seed 就用全域亂數）
-        # 這裡用 copy 避免改動原 qs
-        qs_copy = qs[:]
-        rnd.shuffle(qs_copy)
+        qs_copy = qs[:]       # 不改動原列表
+        rnd.shuffle(qs_copy)  # 可能是決定性 shuffle
         qs = qs_copy[:k]
         picked = len(qs)
     else:
-        # 題庫為空或 k=0 → 回空陣列
         qs = []
 
     debug_msg = f"rows={total}, picked={picked}" + (f", seed={seed}" if seed else "")
 
     return JSONResponse(
-        {
-            "list": qs,
-            "usedUrl": f"s3://{S3_BUCKET}/{key}",
-            "debug": debug_msg,
-        },
+        {"list": qs, "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": debug_msg},
         media_type="application/json; charset=utf-8",
     )
