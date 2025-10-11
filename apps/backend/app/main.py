@@ -1,8 +1,11 @@
 # apps/backend/app/main.py
-import os, io, csv
+import os, io, csv, random
+from typing import Optional
+
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
+
 import boto3
 from botocore.config import Config
 
@@ -32,13 +35,14 @@ s3 = boto3.client(
     region_name=os.getenv("S3_REGION", "auto"),
     config=Config(s3={"addressing_style": "virtual"}),
 )
+
 PREFIX = "packs/"
 def slug_to_key(slug: str) -> str:
     return f"{PREFIX}{slug}.csv"
 
 # ---------- helpers ----------
 def smart_decode(b: bytes) -> str:
-    # 嘗試常見編碼，避免「亂碼」
+    """嘗試常見編碼，避免亂碼"""
     for enc in ("utf-8-sig", "utf-8", "cp950", "big5", "gb18030"):
         try:
             return b.decode(enc)
@@ -72,7 +76,7 @@ def list_packs():
         key = obj["Key"]
         if not key.endswith(".csv"):
             continue
-        slug = key[len(PREFIX):-4]
+        slug = key[len(PREFIX):-4]  # 去掉 'packs/' 與 '.csv'
         parts = slug.split("/")
         title = parts[-1].replace("-", " ").title()
         subject = parts[0] if len(parts) > 0 else ""
@@ -81,20 +85,28 @@ def list_packs():
     return items
 
 # ---------- get quiz ----------
-# 需要在檔案頂部補上
-import random
-
-# ---------- get quiz ----------
 @app.get("/quiz")
 @app.get("/api/quiz")
 def get_quiz(
     slug: str = Query(""),
-    n: int | None = Query(None, description="精確抽幾題；若給 n，忽略 nmin/nmax"),
+    n: Optional[int] = Query(None, description="精確抽幾題；若給 n，忽略 nmin/nmax"),
     nmin: int = Query(10, description="隨機下限（含）"),
     nmax: int = Query(15, description="隨機上限（含）"),
-    seed: str | None = Query(None, description="決定性洗牌種子（如 '2025-10-08' 或 'user123'）"),
+    seed: Optional[str] = Query(None, description="決定性洗牌種子（如 '2025-10-08' 或 'user123'）"),
 ):
-    # 去前後空白，避免 ' chinese/...'
+    """
+    回傳格式：
+      {
+        "list": [...],            # 題目陣列（可能已經隨機抽樣）
+        "usedUrl": "s3://...csv",
+        "debug": "rows=..., picked=..., seed=..."
+      }
+    查詢參數：
+      - n:    精確抽幾題（>0 時優先）
+      - nmin: 隨機下限（預設 10）
+      - nmax: 隨機上限（預設 15）
+      - seed: 決定性洗牌（同 seed 會得到同順序）
+    """
     slug = (slug or "").strip()
     if not slug:
         return JSONResponse({"list": []}, media_type="application/json; charset=utf-8")
@@ -104,8 +116,10 @@ def get_quiz(
         obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     except Exception:
         # 找不到檔案或權限問題 → 回空集合給前端顯示「No questions」
-        return JSONResponse({"list": [], "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": "s3 get_object failed"},
-                            media_type="application/json; charset=utf-8")
+        return JSONResponse(
+            {"list": [], "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": "s3 get_object failed"},
+            media_type="application/json; charset=utf-8",
+        )
 
     raw = obj["Body"].read()
     text = smart_decode(raw)
@@ -140,13 +154,13 @@ def get_quiz(
     picked = total
 
     # ---- 隨機抽題邏輯 ----
-    # 設定決定性亂數（可選）
-    rnd = random.Random(str(seed)) if seed else random
+    rnd = random.Random(str(seed)) if seed else random  # 決定性或一般亂數
 
     # 決定抽幾題
     if isinstance(n, int) and n > 0:
         k = min(max(1, n), total) if total > 0 else 0
     else:
+        # 防呆：確保 lo <= hi 且都 ≥ 1（當 total>0）
         lo = 1 if total > 0 else 0
         lo = max(lo, min(nmin, nmax))
         hi = max(lo, nmax) if total > 0 else 0
