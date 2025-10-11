@@ -19,7 +19,7 @@ export type Question = {
   answers?: string | string[];
 
   // Match（全部透傳，交給 QuizPage 的 normalizeOne 處理）
-  pairs?: unknown;           // string | Array<{left:string; right:string}> | object
+  pairs?: unknown;              // string | Array<{left:string; right:string}> | object
   left?: string | string[];
   right?: string | string[];
   answerMap?: string | number[]; // 可能是 "0|1|2" 或 [0,1,2]
@@ -37,12 +37,28 @@ function normBase(s?: string) {
 }
 const dedupe = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
 
+type FetchOpts = {
+  n?: number;        // 精確抽幾題（>0 時優先）
+  nmin?: number;     // 隨機下限（含）
+  nmax?: number;     // 隨機上限（含）
+  seed?: string;     // 決定性洗牌種子
+};
+
 export async function fetchQuestions(
-  slug: string
+  slug: string,
+  opts?: FetchOpts
 ): Promise<{ list: Question[]; usedUrl?: string; debug?: string }> {
   const base = normBase(import.meta.env.VITE_API_BASE as string | undefined);
   const direct = "https://study-game-back.onrender.com";
-  const q = `quiz?slug=${encodeURIComponent(slug)}`;
+
+  // 組 query：slug +（可選）n/nmin/nmax/seed
+  const params = new URLSearchParams({ slug });
+  if (opts?.n && Number.isFinite(opts.n) && opts.n > 0) params.set("n", String(opts.n));
+  if (opts?.nmin && Number.isFinite(opts.nmin)) params.set("nmin", String(opts.nmin));
+  if (opts?.nmax && Number.isFinite(opts.nmax)) params.set("nmax", String(opts.nmax));
+  if (opts?.seed) params.set("seed", String(opts.seed));
+
+  const q = `quiz?${params.toString()}`;
 
   const urls = dedupe([
     base && `${base}/${q}`,
@@ -83,7 +99,7 @@ export async function fetchQuestions(
         };
       }
 
-      // 不做任何壓縮或欄位改名，**原樣透傳**給 QuizPage 的 normalizeOne
+      // 原樣透傳；由 QuizPage.normalizeOne 負責強韌解析（含 match 題）
       return { list: rawList as Question[], usedUrl: url, debug: data?.debug };
     } catch (e) {
       lastErr = `Network error @ ${url}: ${String(e)}`;
