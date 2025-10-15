@@ -182,3 +182,53 @@ def get_quiz(
         {"list": qs, "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": debug_msg},
         media_type="application/json; charset=utf-8",
     )
+
+# apps/backend/app/main.py（擷取：加入一個路由）
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, EmailStr
+from .mailer_sendgrid import send_report_email
+
+class ReportPayload(BaseModel):
+    to_email: EmailStr
+    student_name: str
+    grade: str | None = None
+    score: int
+    total: int
+    duration_min: int | None = None
+    summary: str | None = None
+    detail_rows: list[dict] | None = None  # 可放 {q, yourAns, correctAns}
+
+@app.post("/report/send")
+def send_report(payload: ReportPayload):
+    subject = f"{payload.student_name} 今日練習報告：{payload.score}/{payload.total}"
+    # 簡單 HTML（你可改為更漂亮的樣式）
+    rows_html = ""
+    if payload.detail_rows:
+        rows_html = "<table style='width:100%;border-collapse:collapse;font-size:14px'>"
+        rows_html += "<tr><th align='left'>題目</th><th align='left'>你的答案</th><th align='left'>正確答案</th></tr>"
+        for r in payload.detail_rows[:50]:
+            q = r.get("q","")
+            a = r.get("yourAns","")
+            c = r.get("correct","")
+            rows_html += f"<tr><td style='border-top:1px solid #eee;padding:6px 4px'>{q}</td>"
+            rows_html += f"<td style='border-top:1px solid #eee;padding:6px 4px'>{a}</td>"
+            rows_html += f"<td style='border-top:1px solid #eee;padding:6px 4px'>{c}</td></tr>"
+        rows_html += "</table>"
+
+    html = f"""
+    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
+      <h2 style="margin:0 0 8px">學習報告</h2>
+      <div>學生：<b>{payload.student_name}</b>{' · 年級：'+payload.grade if payload.grade else ''}</div>
+      <div>分數：<b>{payload.score}/{payload.total}</b>{' · 用時：'+str(payload.duration_min)+' 分' if payload.duration_min else ''}</div>
+      {'<p style="margin-top:8px">'+payload.summary+'</p>' if payload.summary else ''}
+      {rows_html}
+      <p style="color:#666;font-size:12px;margin-top:16px">
+        本電郵由系統自動發送。若有疑問，直接回覆本郵件即可。
+      </p>
+    </div>
+    """
+
+    ok, err = send_report_email(payload.to_email, subject, html)
+    if not ok:
+        raise HTTPException(status_code=500, detail=err)
+    return {"ok": True}
