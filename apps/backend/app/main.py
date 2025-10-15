@@ -1,6 +1,6 @@
 # apps/backend/app/main.py
-import os, io, csv, random
-from typing import Optional
+import os, io, csv, random, re
+from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -8,7 +8,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import boto3
 from botocore.config import Config
+from pydantic import BaseModel, EmailStr
 
+# ----- app -----
 app = FastAPI()
 
 # ---------- CORS ----------
@@ -25,24 +27,41 @@ app.add_middleware(
     max_age=86400,
 )
 
-# ---------- S3/R2 ----------
-S3_BUCKET = os.environ["S3_BUCKET"]
+# ---------- env & S3/R2 ----------
+def need(name: str) -> str:
+    v = os.getenv(name)
+    if not v:
+        raise RuntimeError(f"Missing environment variable: {name}")
+    return v
+
+S3_BUCKET = need("S3_BUCKET")
+S3_ACCESS_KEY = need("S3_ACCESS_KEY")
+S3_SECRET_KEY = need("S3_SECRET_KEY")
+
 s3 = boto3.client(
     "s3",
     endpoint_url=os.getenv("S3_ENDPOINT") or None,
-    aws_access_key_id=os.environ["S3_ACCESS_KEY"],
-    aws_secret_access_key=os.environ["S3_SECRET_KEY"],
+    aws_access_key_id=S3_ACCESS_KEY,
+    aws_secret_access_key=S3_SECRET_KEY,
     region_name=os.getenv("S3_REGION", "auto"),
     config=Config(s3={"addressing_style": "virtual"}),
 )
 
 PREFIX = "packs/"
+
+_slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
+def validate_slug(slug: str) -> str:
+    """Only allow simple path fragments like 'math/p1/add-10'."""
+    slug = (slug or "").strip().strip("/")
+    if not slug or ".." in slug or not _slug_re.fullmatch(slug):
+        raise HTTPException(status_code=400, detail="invalid slug")
+    return slug
+
 def slug_to_key(slug: str) -> str:
     return f"{PREFIX}{slug}.csv"
 
 # ---------- helpers ----------
 def smart_decode(b: bytes) -> str:
-    """嘗試常見編碼，避免亂碼"""
     for enc in ("utf-8-sig", "utf-8", "cp950", "big5", "gb18030"):
         try:
             return b.decode(enc)
@@ -59,29 +78,44 @@ def root():
 @app.post("/upload")
 @app.post("/api/upload")
 async def upload_csv(slug: str, file: UploadFile = File(...)):
-    if not slug:
-        raise HTTPException(status_code=400, detail="missing slug")
+    slug = validate_slug(slug)
     content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="empty file")
+
     key = slug_to_key(slug)
-    s3.put_object(Bucket=S3_BUCKET, Key=key, Body=content, ContentType="text/csv")
+    try:
+        s3.put_object(Bucket=S3_BUCKET, Key=key, Body=content, ContentType="text/csv")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"S3 put_object failed: {e}")
+
     return {"ok": True, "slug": slug, "key": key, "size": len(content)}
 
-# ---------- list packs ----------
+# ---------- list packs (with pagination) ----------
 @app.get("/packs")
 @app.get("/api/packs")
 def list_packs():
-    resp = s3.list_objects_v2(Bucket=S3_BUCKET, Prefix=PREFIX)
-    items = []
-    for obj in resp.get("Contents", []):
-        key = obj["Key"]
-        if not key.endswith(".csv"):
-            continue
-        slug = key[len(PREFIX):-4]  # 去掉 'packs/' 與 '.csv'
-        parts = slug.split("/")
-        title = parts[-1].replace("-", " ").title()
-        subject = parts[0] if len(parts) > 0 else ""
-        grade = parts[1] if len(parts) > 1 else ""
-        items.append({"slug": slug, "title": title, "subject": subject, "grade": grade})
+    items: List[Dict[str, Any]] = []
+    kwargs = {"Bucket": S3_BUCKET, "Prefix": PREFIX, "MaxKeys": 1000}
+
+    while True:
+        resp = s3.list_objects_v2(**kwargs)
+        for obj in resp.get("Contents", []):
+            key = obj["Key"]
+            if not key.endswith(".csv"):
+                continue
+            slug = key[len(PREFIX):-4]  # drop 'packs/' and '.csv'
+            parts = slug.split("/")
+            title = parts[-1].replace("-", " ").title()
+            subject = parts[0] if len(parts) > 0 else ""
+            grade = parts[1] if len(parts) > 1 else ""
+            items.append({"slug": slug, "title": title, "subject": subject, "grade": grade})
+
+        if resp.get("IsTruncated") and resp.get("NextContinuationToken"):
+            kwargs["ContinuationToken"] = resp["NextContinuationToken"]
+        else:
+            break
+
     return items
 
 # ---------- get quiz ----------
@@ -95,27 +129,18 @@ def get_quiz(
     seed: Optional[str] = Query(None, description="決定性洗牌種子（如 '2025-10-08' 或 'user123'）"),
 ):
     """
-    回傳格式：
-      {
-        "list": [...],            # 題目陣列（可能已經隨機抽樣）
-        "usedUrl": "s3://...csv",
-        "debug": "rows=..., picked=..., seed=..."
-      }
-    查詢參數：
-      - n:    精確抽幾題（>0 時優先）
-      - nmin: 隨機下限（預設 10）
-      - nmax: 隨機上限（預設 15）
-      - seed: 決定性洗牌（同 seed 會得到同順序）
+    回傳：
+      {"list":[...], "usedUrl":"s3://bucket/key.csv", "debug":"rows=.., picked=.., seed=.."}
     """
-    slug = (slug or "").strip()
-    if not slug:
+    try:
+        slug = validate_slug(slug)
+    except HTTPException:
         return JSONResponse({"list": []}, media_type="application/json; charset=utf-8")
 
     key = slug_to_key(slug)
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     except Exception:
-        # 找不到檔案或權限問題 → 回空集合給前端顯示「No questions」
         return JSONResponse(
             {"list": [], "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": "s3 get_object failed"},
             media_type="application/json; charset=utf-8",
@@ -123,12 +148,9 @@ def get_quiz(
 
     raw = obj["Body"].read()
     text = smart_decode(raw)
-
-    # 讀 CSV → rows (list[dict])
     rows = list(csv.DictReader(io.StringIO(text)))
 
-    # 映射為前端可吃的欄位；pairs/left/right/answerMap 原樣透傳
-    qs = []
+    qs: List[Dict[str, Any]] = []
     for i, r in enumerate(rows, start=1):
         qs.append({
             "id":       r.get("id") or str(i),
@@ -139,11 +161,9 @@ def get_quiz(
             "choiceC":  r.get("choiceC") or r.get("C") or "",
             "choiceD":  r.get("choiceD") or r.get("D") or "",
             "answer":   r.get("answer")  or r.get("答案") or "",
-            "answers":  r.get("answers") or "",   # fill 題 pipe：yellow|黃色
+            "answers":  r.get("answers") or "",
             "explain":  r.get("explain") or r.get("解析") or "",
             "image":    r.get("image") or "",
-
-            # --- 配對題欄位（交給前端 normalizeOne 的容錯解析）---
             "pairs":     r.get("pairs") or r.get("Pairs") or "",
             "left":      r.get("left") or r.get("Left") or "",
             "right":     r.get("right") or r.get("Right") or "",
@@ -151,69 +171,65 @@ def get_quiz(
         })
 
     total = len(qs)
-    picked = total
-
-    # ---- 隨機抽題邏輯 ----
-    rnd = random.Random(str(seed)) if seed else random  # 決定性或一般亂數
-
-    # 決定抽幾題
-    if isinstance(n, int) and n > 0:
-        k = min(max(1, n), total) if total > 0 else 0
-    else:
-        # 防呆：確保 lo <= hi 且都 ≥ 1（當 total>0）
-        lo = 1 if total > 0 else 0
-        lo = max(lo, min(nmin, nmax))
-        hi = max(lo, nmax) if total > 0 else 0
-        k = rnd.randint(lo, hi) if total > 0 else 0
-        k = min(k, total)
-
-    # 只有題庫非空才洗牌/抽樣
-    if total > 0 and k > 0:
-        qs_copy = qs[:]       # 不改動原列表
-        rnd.shuffle(qs_copy)  # 可能是決定性 shuffle
+    picked = 0
+    if total > 0:
+        rnd = random.Random(str(seed)) if seed else random
+        if n and n > 0:
+            k = min(max(1, n), total)
+        else:
+            lo, hi = sorted([nmin, nmax])
+            lo = max(1, lo)
+            hi = max(lo, hi)
+            k = min(rnd.randint(lo, hi), total)
+        qs_copy = qs[:]
+        rnd.shuffle(qs_copy)
         qs = qs_copy[:k]
         picked = len(qs)
     else:
         qs = []
 
     debug_msg = f"rows={total}, picked={picked}" + (f", seed={seed}" if seed else "")
-
     return JSONResponse(
         {"list": qs, "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": debug_msg},
         media_type="application/json; charset=utf-8",
     )
 
-# apps/backend/app/main.py（擷取：加入一個路由）
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, EmailStr
-from .mailer_sendgrid import send_report_email
+# ---------- email report ----------
+from .mailer_sendgrid import send_report_email  # keep local helper
 
 class ReportPayload(BaseModel):
     to_email: EmailStr
     student_name: str
-    grade: str | None = None
+    grade: Optional[str] = None
     score: int
     total: int
-    duration_min: int | None = None
-    summary: str | None = None
-    detail_rows: list[dict] | None = None  # 可放 {q, yourAns, correctAns}
+    duration_min: Optional[int] = None
+    summary: Optional[str] = None
+    detail_rows: Optional[List[Dict[str, Any]]] = None  # {q, yourAns, correct}
 
 @app.post("/report/send")
 def send_report(payload: ReportPayload):
     subject = f"{payload.student_name} 今日練習報告：{payload.score}/{payload.total}"
-    # 簡單 HTML（你可改為更漂亮的樣式）
+
     rows_html = ""
     if payload.detail_rows:
-        rows_html = "<table style='width:100%;border-collapse:collapse;font-size:14px'>"
-        rows_html += "<tr><th align='left'>題目</th><th align='left'>你的答案</th><th align='left'>正確答案</th></tr>"
+        rows_html = [
+            "<table style='width:100%;border-collapse:collapse;font-size:14px'>",
+            "<tr><th align='left'>題目</th><th align='left'>你的答案</th><th align='left'>正確答案</th></tr>",
+        ]
         for r in payload.detail_rows[:50]:
-            q = r.get("q","")
-            a = r.get("yourAns","")
-            c = r.get("correct","")
-            rows_html += f"<tr><td style='border-top:1px solid #eee;padding:6px 4px'>{q}</td>"
-            rows_html += f"<td style='border-top:1px solid #eee;padding:6px 4px'>{a}</td>"
-            rows_html += f"<td style='border-top:1px solid #eee;padding:6px 4px'>{c}</td></tr>"
-        rows_html += "</table>"
+            q = (r.get("q") or "").replace("<","&lt;").replace(">","&gt;")
+            a = (r.get("yourAns") or "")
+            c = (r.get("correct") or "")
+            rows_html.append(
+                "<tr>"
+                f"<td style='border-top:1px solid #eee;padding:6px 4px'>{q}</td>"
+                f"<td style='border-top:1px solid #eee;padding:6px 4px'>{a}</td>"
+                f"<td style='border-top:1px solid #eee;padding:6px 4px'>{c}</td>"
+                "</tr>"
+            )
+        rows_html.append("</table>")
+        rows_html = "".join(rows_html)
 
     html = f"""
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
@@ -230,5 +246,5 @@ def send_report(payload: ReportPayload):
 
     ok, err = send_report_email(payload.to_email, subject, html)
     if not ok:
-        raise HTTPException(status_code=500, detail=err)
+        raise HTTPException(status_code=502, detail=err)
     return {"ok": True}
