@@ -6,7 +6,7 @@ from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 # 在 main.py 檔案頂部其他 import 之後
-from app.mailer_sendgrid import send_report_email
+from .mailer_sendgrid import send_report_email
 
 import boto3
 from botocore.config import Config
