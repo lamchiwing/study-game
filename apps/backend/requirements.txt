@@ -2,4 +2,5 @@ fastapi
 uvicorn[standard]
 boto3
 botocore
-requests          # ← mailer_sendgrid 用到
+requests
+python-multipart
