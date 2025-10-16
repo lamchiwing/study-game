@@ -250,3 +250,13 @@ def send_report(payload: ReportPayload):
     if not ok:
         raise HTTPException(status_code=502, detail=err)
     return {"ok": True}
+
+@app.get("/__test_mail")
+def __test_mail(to: str = Query(...)):
+    ok, msg = send_report_email(
+        to_email=to,
+        subject="Test: Study Game mailer",
+        html="<p>Hello from Study Game!</p>",
+    )
+    return {"ok": ok, "msg": msg}
+
