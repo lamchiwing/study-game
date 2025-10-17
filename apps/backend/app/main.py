@@ -9,20 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 import boto3
 from botocore.config import Config
 from pydantic import BaseModel, EmailStr
-from app.mailer_sendgrid import send_report_email  # 確保路徑正確
+from app.mailer_sendgrid import send_report_email  # 僅保留這一行
 
-
-# --- 測試寄信路由（GET）---
-@app.get("/__test_mail")
-def __test_mail(to: EmailStr):
-    ok, err = send_report_email(
-        to_email=str(to),
-        subject="[Study Game] 測試信件",
-        html="<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定OK。</p>"
-    )
-    return {"ok": ok, "error": err}
-
-# ----- app -----
+# ----- 先建立 app，再宣告任何路由 -----
 app = FastAPI()
 
 # ---------- CORS ----------
@@ -38,6 +27,19 @@ app.add_middleware(
     allow_credentials=False,
     max_age=86400,
 )
+
+# --- 測試寄信路由（GET）---
+@app.get("/__test_mail")
+def __test_mail(to: EmailStr):
+    ok, err = send_report_email(
+        to=str(to),  # 修正參數名稱：to=，不是 to_email=
+        subject="[Study Game] 測試信件",
+        html="<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定OK。</p>"
+    )
+    return {"ok": ok, "error": err}
+
+# 其後保持你的既有程式（need(...)、S3 客戶端、/packs、/quiz、/report/send 等）
+
 
 # ---------- env & S3/R2 ----------
 def need(name: str) -> str:
