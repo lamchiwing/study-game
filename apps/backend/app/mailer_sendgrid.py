@@ -21,29 +21,14 @@ DISABLE_TRACKING   = os.getenv("SENDGRID_DISABLE_TRACKING", "1") == "1"  # defau
 
 SEND_URL = "https://api.sendgrid.com/v3/mail/send"
 
-
-def _html_to_text(html: str) -> str:
-    """Ultra-light HTML→text，提升送達率（提供純文字part）"""
-    text = re.sub(r"(?i)<br\s*/?>", "\n", html)
-    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
-    text = re.sub(r"<[^>]+>", "", text)
-    return unescape(text).strip()
-
-
-def _ensure_list(emails: Iterable[str] | str | None) -> list[str]:
-    if not emails:
+def _ensure_list(x):
+    if not x:
         return []
-    if isinstance(emails, str):
-        return [emails.strip()]
-    return [str(x).strip() for x in emails if str(x).strip()]
+    if isinstance(x, (list, tuple, set)):
+        return [str(i).strip() for i in x if str(i).strip()]
+    return [str(x).strip()]
 
-
-def _build_personalizations(
-    to_emails: Sequence[str],
-    cc_emails: Optional[Sequence[str]] = None,
-    bcc_emails: Optional[Sequence[str]] = None,
-    dynamic_data: Optional[Mapping[str, object]] = None,
-) -> list[dict]:
+def _build_personalizations(*, to_emails, cc_emails=None, bcc_emails=None):
     p = {
         "to": [{"email": e} for e in to_emails],
     }
@@ -51,11 +36,16 @@ def _build_personalizations(
         p["cc"] = [{"email": e} for e in cc_emails]
     if bcc_emails:
         p["bcc"] = [{"email": e} for e in bcc_emails]
-    if dynamic_data:
-        # 可配合 Dynamic Templates 使用（若需要）
-        p["dynamic_template_data"] = dict(dynamic_data)
     return [p]
 
+def _html_to_text(html: str) -> str:
+    # 非完美，但足夠做純文字預覽
+    text = re.sub(r"<(script|style)[\s\S]*?</\1>", "", html or "", flags=re.I)
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"</p\s*>", "\n\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
 
 def send_report_email(
     to: str | Sequence[str],
