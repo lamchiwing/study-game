@@ -5,3 +5,4 @@ botocore
 requests
 python-multipart
 email-validator
+pydantic
