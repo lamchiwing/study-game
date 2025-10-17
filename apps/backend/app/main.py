@@ -4,13 +4,22 @@ from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
-from fastapi.middleware.cors import CORSMiddleware
-# 在 main.py 檔案頂部其他 import 之後
-from .mailer_sendgrid import send_report_email
+from fastapi.middleware.cors import CORSMiddle
 
 import boto3
 from botocore.config import Config
 from pydantic import BaseModel, EmailStr
+from .mailer_sendgrid import send_report_email
+
+# --- 測試寄信路由（GET）---
+@app.get("/__test_mail")
+def __test_mail(to: EmailStr):
+    ok, err = send_report_email(
+        to_email=str(to),
+        subject="[Study Game] 測試信件",
+        html="<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定OK。</p>"
+    )
+    return {"ok": ok, "error": err}
 
 # ----- app -----
 app = FastAPI()
@@ -250,13 +259,3 @@ def send_report(payload: ReportPayload):
     if not ok:
         raise HTTPException(status_code=502, detail=err)
     return {"ok": True}
-
-@app.get("/__test_mail")
-def __test_mail(to: str = Query(...)):
-    ok, msg = send_report_email(
-        to_email=to,
-        subject="Test: Study Game mailer",
-        html="<p>Hello from Study Game!</p>",
-    )
-    return {"ok": ok, "msg": msg}
-
