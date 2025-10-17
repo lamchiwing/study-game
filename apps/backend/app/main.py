@@ -4,7 +4,7 @@ from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
-from fastapi.middleware.cors import CORSMiddle
+from fastapi.middleware.cors import CORSMiddleware
 
 import boto3
 from botocore.config import Config
