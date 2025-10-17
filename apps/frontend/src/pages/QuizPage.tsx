@@ -583,22 +583,24 @@ export default function QuizPage() {
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
+              const picked = a != null;         // 是否已選過本題
               const active = a === i;
               return (
                 <motion.button
                   key={i}
                   onClick={() => pickMCQ(i)}
+                  disabled={picked && !active}   // ✅ 已選後，其他選項禁用 
                   whileTap={{ scale: 0.98 }}
-                  whileHover={{ scale: 1.01 }}
+                  whileHover={{ scale: picked ? 1 : 1.01 }}
                   className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${
                     active ? "border-black ring-1 ring-black" : ""
-                  }`}
+                  } ${picked && !active ? "opacity-50 pointer-events-none" : ""}`}
                 >
                   <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-semibold">
                     {"ABCD"[i]}
                   </span>
-                  <span>{renderContent(text)}</span>
-                </motion.button>
+                  dangerouslySetInnerHTML={{ __html: renderContent(text) }} /> 
+                 </motion.button>
               );
             })}
           </div>
@@ -609,15 +611,23 @@ export default function QuizPage() {
           <div className="flex gap-2">
             <motion.button
               whileTap={{ scale: 0.98 }}
+              whileHover={{ scale: a === true ? 1 : 1.01 }} 
               onClick={() => pickTF(true)}
-              className={`rounded border px-3 py-2 ${a === true ? "border-black ring-1 ring-black" : ""}`}
+              disabled={a !== null && a !== undefined && a !== true}  // ✅ 已選另一邊就禁用 
+              className={`rounded border px-3 py-2 ${
+                a === true ? "border-black ring-1 ring-black" : "hover:bg-gray-50"
+              } ${a !== null && a !== undefined && a !== true ? "opacity-50 pointer-events-none" : ""}`}
             >
               True
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.98 }}
+              whileHover={{ scale: a === false ? 1 : 1.01 }} 
               onClick={() => pickTF(false)}
-              className={`rounded border px-3 py-2 ${a === false ? "border-black ring-1 ring-black" : ""}`}
+              disabled={a !== null && a !== undefined && a !== false} 
+              className={`rounded border px-3 py-2 ${
+                a === false ? "border-black ring-1 ring-black" : "hover:bg-gray-50"
+              } ${a !== null && a !== undefined && a !== false ? "opacity-50 pointer-events-none" : ""}`}
             >
               False
             </motion.button>
