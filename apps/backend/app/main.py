@@ -9,7 +9,8 @@ from fastapi.middleware.cors import CORSMiddle
 import boto3
 from botocore.config import Config
 from pydantic import BaseModel, EmailStr
-from .mailer_sendgrid import send_report_email
+from app.mailer_sendgrid import send_report_email  # 確保路徑正確
+
 
 # --- 測試寄信路由（GET）---
 @app.get("/__test_mail")
