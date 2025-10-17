@@ -325,33 +325,36 @@ export default function QuizPage() {
     prevScoreRef.current = score;
   }, [score]);
 
+  // ✅ MCQ：已答就不再改
   const pickMCQ = (i: number) =>
     setAnswers((prev) => {
+      if (prev[idx] != null) return prev;        // ← 關鍵：鎖定
       const next = prev.slice();
       next[idx] = i;
       return next;
-    });
+  });
+
+// ✅ TF：已答就不再改
   const pickTF = (b: boolean) =>
     setAnswers((prev) => {
+      if (prev[idx] != null) return prev;        // ← 關鍵：鎖定
       const next = prev.slice();
       next[idx] = b;
       return next;
-    });
-  const fillText = (text: string) =>
-    setAnswers((prev) => {
-      const next = prev.slice();
-      next[idx] = text;
-      return next;
-    });
+   });
+
+// ✅ Match：每一列選定後鎖該列（可改成鎖整題，看你需求）
   const pickMatch = (li: number, ri: number | null) =>
     setAnswers((prev) => {
+      const cur = prev[idx];
+      if (Array.isArray(cur) && cur[li] != null) return prev; // 該列已選，就不改
       const next = prev.slice();
       const arr = (next[idx] as Array<number | null>).slice();
       arr[li] = ri;
       next[idx] = arr;
       return next;
-    });
-
+   });
+ 
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
   const prevQ = () => idx > 0 && setIdx(idx - 1);
   const restart = () => {
