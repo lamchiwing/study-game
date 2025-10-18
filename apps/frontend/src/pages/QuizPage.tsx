@@ -353,6 +353,18 @@ export default function QuizPage() {
       next[idx] = arr;
       return next;
    });
+
+  // ✅ Fill：輸入框處理（預設可改；想鎖首輸入可看下面備註）
+  const fillText = (v: string) =>
+    setAnswers((prev) => {
+    // 想「第一次輸入後就鎖定不讓再改」→ 解除下一行註解
+    // if (prev[idx] && String(prev[idx]).trim() !== "") return prev;
+
+    const next = prev.slice();
+    next[idx] = v;
+    return next;
+   });
+ 
  
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
   const prevQ = () => idx > 0 && setIdx(idx - 1);
@@ -639,7 +651,7 @@ export default function QuizPage() {
         {q.type === "fill" && (
           <div className="flex gap-2">
             <input
-              value={a as string}
+              value={typeof a === "string" ? a : ""} 
               onChange={(e) => fillText(e.target.value)}
               placeholder="你的答案…"
               className="w-full rounded border px-3 py-2"
