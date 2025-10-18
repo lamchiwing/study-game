@@ -293,12 +293,10 @@ export default function QuizPage() {
         
         setIdx(0);
         setApiUrl(ret?.usedUrl);
-        setDebug(ret?.debug);
       } catch (e: any) {
         console.warn("fetchQuestions failed:", e);
         setQuestions([]);
-        setApiUrl(undefined);
-        setDebug(String(e));
+        setApiUrl(undefined);      
       } finally {
         setLoading(false);
       }
@@ -526,8 +524,7 @@ export default function QuizPage() {
            {/* 只在開發模式顯示 */}
            {SHOW_DEBUG && (apiUrl || debug) && (
              <div className="text-xs text-gray-500 break-all">
-               <span className="font-medium">source:</span> {apiUrl ?? "N/A"}
-               {debug ? <> · {debug}</> : null}
+               <span className="font-medium">source:</span> {apiUrl ?? "N/A"}              
              </div>
            )}
          </div>
@@ -603,7 +600,7 @@ export default function QuizPage() {
                   <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-semibold">
                     {"ABCD"[i]}
                   </span>
-                  dangerouslySetInnerHTML={{ __html: renderContent(text) }} /> 
+                  {renderContent(text)}                 // ✅ 建議：用你已寫好的 helper 
                  </motion.button>
               );
             })}
