@@ -380,9 +380,9 @@ export default function QuizPage() {
           <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
         </div>
         <p>No questions.</p>
-        {(apiUrl || debug) && (
+        {SHOW_DEBUG && (apiUrl || debug) && ( 
           <div className="text-xs text-gray-500 break-all">
-            source: {apiUrl ?? "N/A"}
+            <span className="font-medium">source:</span> {apiUrl ?? "N/A"} 
             {debug ? <> · debug: {debug}</> : null}
           </div>
         )}
