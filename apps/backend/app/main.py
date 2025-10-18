@@ -164,6 +164,13 @@ def get_quiz(
     text = smart_decode(raw)
     rows = list(csv.DictReader(io.StringIO(text)))
 
+    pack_title = ""
+    for r in rows:
+    t = (r.get("title") or r.get("標題") or "").strip()
+    if t:
+        pack_title = t
+        break
+
     qs: List[Dict[str, Any]] = []
     for i, r in enumerate(rows, start=1):
         qs.append({
@@ -204,7 +211,7 @@ def get_quiz(
 
     debug_msg = f"rows={total}, picked={picked}" + (f", seed={seed}" if seed else "")
     return JSONResponse(
-        {"list": qs, "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": debug_msg},
+        {"title": pack_title, "list": qs, "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": debug_msg},
         media_type="application/json; charset=utf-8",
     )
 
