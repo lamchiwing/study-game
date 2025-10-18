@@ -247,7 +247,8 @@ export default function QuizPage() {
   const [questions, setQuestions] = useState<NormQ[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiUrl, setApiUrl] = useState<string | undefined>();
-  const [debug, setDebug] = useState<string | undefined>();
+  const SHOW_DEBUG = import.meta.env.DEV;
+ 
 
   const [idx, setIdx] = useState(0);
   const [answers, setAnswers] = useState<any[]>([]);
