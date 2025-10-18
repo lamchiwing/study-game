@@ -614,6 +614,7 @@ export default function QuizPage() {
                   </span>
                   <span className="flex-1 whitespace-normal break-words"> 
                   {renderContent(text)}
+                  </span>   
                  </motion.button>
               );
             })}
