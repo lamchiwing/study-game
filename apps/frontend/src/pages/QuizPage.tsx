@@ -612,7 +612,8 @@ export default function QuizPage() {
                   <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-semibold">
                     {"ABCD"[i]}
                   </span>
-                  {renderContent(text)}                 // ✅ 建議：用你已寫好的 helper 
+                  <span className="flex-1 whitespace-normal break-words"> 
+                  {renderContent(text)}
                  </motion.button>
               );
             })}
