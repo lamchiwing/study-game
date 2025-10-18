@@ -293,6 +293,7 @@ export default function QuizPage() {
         
         setIdx(0);
         setApiUrl(ret?.usedUrl);
+        setPackTitle(ret?.title || ""); 
       } catch (e: any) {
         console.warn("fetchQuestions failed:", e);
         setQuestions([]);
