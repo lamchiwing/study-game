@@ -516,18 +516,21 @@ export default function QuizPage() {
   const q = questions[idx]!;
   const a = answers[idx];
 
-  return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
-          {(apiUrl || debug) && (
-            <div className="text-xs text-gray-500 break-all">
-              source: {apiUrl ?? "N/A"}
-              {debug ? <> · debug: {debug}</> : null}
-            </div>
-          )}
-        </div>
+   return (
+     <div className="p-6 max-w-3xl mx-auto space-y-6">
+       <div className="flex items-center justify-between">
+         <div>
+           <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
+
+           {/* 只在開發模式顯示 */}
+           {SHOW_DEBUG && (apiUrl || debug) && (
+             <div className="text-xs text-gray-500 break-all">
+               <span className="font-medium">source:</span> {apiUrl ?? "N/A"}
+               {debug ? <> · {debug}</> : null}
+             </div>
+           )}
+         </div>
+      
         <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
       </div>
 
