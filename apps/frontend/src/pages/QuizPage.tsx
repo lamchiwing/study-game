@@ -531,7 +531,9 @@ export default function QuizPage() {
      <div className="p-6 max-w-3xl mx-auto space-y-6">
        <div className="flex items-center justify-between">
          <div>
-           <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
+           <h1 className="text-2xl font-semibold">
+             {packTitle ? `Quiz：${packTitle}` : `Quiz: ${slug}`}
+           </h1>
 
            {/* 只在開發模式顯示 */}
            {SHOW_DEBUG && (apiUrl || debug) && (
