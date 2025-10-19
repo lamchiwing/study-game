@@ -5,11 +5,14 @@ from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
+from .entitlements import has_access  # 你專案已內建
+from .mailer_sendgrid import send_report_email
 
 import boto3
 from botocore.config import Config
 from pydantic import BaseModel, EmailStr
 from app.mailer_sendgrid import send_report_email  # 僅保留這一行
+
 
 # ----- 先建立 app，再宣告任何路由 -----
 app = FastAPI()
@@ -229,43 +232,74 @@ class ReportPayload(BaseModel):
     detail_rows: Optional[List[Dict[str, Any]]] = None  # {q, yourAns, correct}
 
 @app.post("/report/send")
-def send_report(payload: ReportPayload):
-    subject = f"{payload.student_name} 今日練習報告：{payload.score}/{payload.total}"
+def send_report(
+    payload: ReportPayload,
+    slug: str | None = Query(default=None),                 # 前端帶上目前測驗的 slug
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    # 1) 權限：若開啟限制，未購買則拒絕
+    if REPORT_PAID_ONLY:
+        subject_code, grade = _parse_subject_grade(slug or "")
+        if not has_access(x_user_id, subject_code, grade):
+            raise HTTPException(status_code=402, detail="報告功能需購買方案")
+
+    # 2) 參數檢查
+    to_email = (payload.to_email or "").strip()
+    if not to_email or not EMAIL_RX.match(to_email):
+        raise HTTPException(status_code=400, detail="收件電郵格式不正確")
+
+    student_name = (payload.student_name or "").strip()
+    sc = max(0, int(payload.score or 0))
+    tt = max(0, int(payload.total or 0))
+    subject_line = f"{student_name or '學生'} 今日練習報告：{sc}/{tt}"
+
+    # 3) 安全轉義（避免把前端 HTML 直接塞進信件）
+    def esc(s: str | None) -> str:
+        return html.escape(str(s or ""), quote=True)
 
     rows_html = ""
     if payload.detail_rows:
-        rows_html = [
+        rows_html_parts = [
             "<table style='width:100%;border-collapse:collapse;font-size:14px'>",
             "<tr><th align='left'>題目</th><th align='left'>你的答案</th><th align='left'>正確答案</th></tr>",
         ]
-        for r in payload.detail_rows[:50]:
-            q = (r.get("q") or "").replace("<","&lt;").replace(">","&gt;")
-            a = (r.get("yourAns") or "")
-            c = (r.get("correct") or "")
-            rows_html.append(
+        for r in (payload.detail_rows or [])[:50]:  # 上限 50 筆
+            q = esc(r.get("q"))
+            a = esc(r.get("yourAns"))
+            c = esc(r.get("correct"))
+            rows_html_parts.append(
                 "<tr>"
                 f"<td style='border-top:1px solid #eee;padding:6px 4px'>{q}</td>"
                 f"<td style='border-top:1px solid #eee;padding:6px 4px'>{a}</td>"
                 f"<td style='border-top:1px solid #eee;padding:6px 4px'>{c}</td>"
                 "</tr>"
             )
-        rows_html.append("</table>")
-        rows_html = "".join(rows_html)
+        rows_html_parts.append("</table>")
+        rows_html = "".join(rows_html_parts)
 
-    html = f"""
+    # 4) 內文
+    summary_html = ""
+    if payload.summary:
+        # 支援簡單換行；仍然全部轉義避免 XSS
+        summary_html = f"<p style='margin-top:8px'>{esc(payload.summary).replace('\\n','<br>')}</p>"
+
+    duration = f" · 用時：{int(payload.duration_min)} 分" if payload.duration_min else ""
+
+    html_body = f"""
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
       <h2 style="margin:0 0 8px">學習報告</h2>
-      <div>學生：<b>{payload.student_name}</b>{' · 年級：'+payload.grade if payload.grade else ''}</div>
-      <div>分數：<b>{payload.score}/{payload.total}</b>{' · 用時：'+str(payload.duration_min)+' 分' if payload.duration_min else ''}</div>
-      {'<p style="margin-top:8px">'+payload.summary+'</p>' if payload.summary else ''}
+      <div>學生：<b>{esc(student_name)}</b>{' · 年級：'+esc(payload.grade) if payload.grade else ''}</div>
+      <div>分數：<b>{sc}/{tt}</b>{duration}</div>
+      {summary_html}
       {rows_html}
       <p style="color:#666;font-size:12px;margin-top:16px">
         本電郵由系統自動發送。若有疑問，直接回覆本郵件即可。
       </p>
     </div>
-    """
+    """.strip()
 
-    ok, err = send_report_email(payload.to_email, subject, html)
+    ok, err = send_report_email(to_email, subject_line, html_body)
     if not ok:
-        raise HTTPException(status_code=502, detail=err)
+        # 轉拋 SendGrid 失敗訊息
+        raise HTTPException(status_code=502, detail=f"寄送失敗：{err}")
     return {"ok": True}
