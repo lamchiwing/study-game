@@ -257,6 +257,7 @@ export default function QuizPage() {
   // 分數動畫：+1 浮現
   const prevScoreRef = useRef(0);
   const [popPlusOne, setPopPlusOne] = useState(false);
+  const [packTitle, setPackTitle] = useState<string>(""); 
 
   useEffect(() => {
     if (!slug) {
@@ -278,9 +279,10 @@ export default function QuizPage() {
           Number.isFinite(nParam) && nParam > 0
             ? full.slice().sort(() => Math.random() - 0.5).slice(0, nParam)
             : pickN(full, 10, 15);
-
+        
+        setApiUrl(ret?.usedUrl);
+        setPackTitle(ret?.title || "")
         setQuestions(subset);
-
         setAnswers(
           subset.map((q) => {              // ✅ 改用 subset
             if (q.type === "mcq") return null;
