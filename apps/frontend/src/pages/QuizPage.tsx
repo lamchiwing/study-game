@@ -367,6 +367,115 @@ export default function QuizPage() {
     next[idx] = v;
     return next;
    });
+
+  // 追蹤開始時間（用來算用時）
+const startedAtRef = useRef<number>(Date.now());
+
+// 寄出家長報告
+async function sendReportEmail() {
+  // 後端 base：優先用 .env 的 VITE_API_BASE，否則用 /api 反向代理
+  const API_BASE = (import.meta as any).env?.VITE_API_BASE || "/api";
+  const endpoint = `${API_BASE.replace(/\/$/, "")}/report/send?slug=${encodeURIComponent(slug)}`;
+
+  // 假用戶（之後換成你登入系統的 userId）
+  const userId = "user_002";
+
+  // 準備 detail_rows
+  const detail_rows = questions.map((q, i) => {
+    const your = answers[i];
+    const yourText = (() => {
+      switch (q.type) {
+        case "mcq":
+          return your != null ? `${"ABCD"[your as number]}. ${stripBBCode(q.choices[your as number])}` : "";
+        case "tf":
+          return your == null ? "" : your ? "True" : "False";
+        case "fill":
+          return String(your ?? "");
+        case "match": {
+          const arr = your as Array<number | null>;
+          const pairs = (q.left as string[]).map((L, li) => {
+            const ri = arr?.[li];
+            const R = ri != null ? q.right[ri] : "—";
+            return `${stripBBCode(L)} → ${stripBBCode(R)}`;
+          });
+          return pairs.join(" | ");
+        }
+      }
+    })();
+
+    const correctText = (() => {
+      switch (q.type) {
+        case "mcq":
+          if (q.answerLetter) {
+            const idx = "ABCD".indexOf(q.answerLetter);
+            return `${q.answerLetter}. ${stripBBCode(q.choices[idx])}`;
+          }
+          if (q.answerText) {
+            const idx = q.choices.findIndex(c => normStr(c) === normStr(q.answerText!));
+            const letter = idx >= 0 ? "ABCD"[idx] : "?";
+            return `${letter}. ${stripBBCode(q.answerText)}`;
+          }
+          return "";
+        case "tf":
+          return q.answerBool ? "True" : "False";
+        case "fill":
+          return (q.acceptable || []).join(" | ");
+        case "match": {
+          const pairs = q.left.map((L, li) => {
+            const ri = q.answerMap[li];
+            const R = q.right[ri];
+            return `${stripBBCode(L)} → ${stripBBCode(R)}`;
+          });
+          return pairs.join(" | ");
+        }
+      }
+    })();
+
+    return {
+      q: stripBBCode(q.stem),
+      yourAns: yourText,
+      correct: correctText,
+    };
+  });
+
+  const duration_min = Math.max(0, Math.round((Date.now() - startedAtRef.current) / 60000));
+
+  const payload = {
+    to_email: "parent@example.com",        // ← 這裡換成家長 email
+    student_name: "學生姓名",               // ← 可帶入你的真實姓名
+    grade: "",                             // 例如 "P1"（可留空）
+    score,
+    total,
+    duration_min,
+    summary: "",                           // 想加短評可寫在這
+    detail_rows,
+  };
+
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Id": userId,              // ★ 關鍵：授權檢查用
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (res.status === 402) {
+      const { detail } = await res.json().catch(() => ({ detail: "" }));
+      alert(detail || "此功能需購買方案");
+      // 這裡可導去你的付款頁：
+      // window.location.href = "/pricing";
+      return;
+    }
+    if (!res.ok) {
+      throw new Error(await res.text());
+    }
+    alert("已寄出報告 ✉️");
+  } catch (err: any) {
+    alert(`寄送失敗：${err?.message || err}`);
+  }
+}
  
  
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
