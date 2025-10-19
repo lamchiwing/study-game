@@ -14,6 +14,22 @@ from pydantic import BaseModel, EmailStr
 from app.mailer_sendgrid import send_report_email  # 僅保留這一行
 
 
+REPORT_PAID_ONLY = os.getenv("REPORT_PAID_ONLY", "1") == "1"
+EMAIL_RX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+def _parse_subject_grade(slug: str) -> tuple[str, int]:
+    # e.g. "math/grade1/20m" -> ("math", 1)
+    parts = (slug or "").split("/")
+    subject = parts[0] if parts else ""
+    grade = 0
+    for p in parts:
+        if p.startswith("grade") and p[5:].isdigit():
+            grade = int(p[5:])
+            break
+    return subject, grade
+
+
+
 # ----- 先建立 app，再宣告任何路由 -----
 app = FastAPI()
 
