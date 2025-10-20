@@ -69,16 +69,27 @@ export default function PacksPage() {
   if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
   if (!packs.length) return <div className="p-8">No packs found.</div>;
 
-  return (
+    return (
     <div className="p-8">
-      <h1 className="mb-4 text-2xl font-semibold">Packs</h1>
+      <div className="mb-4 flex items-center justify-between">
+        <h1 className="text-2xl font-semibold">Packs</h1>
+        {/* ✅ 付費導引入口 #1 */}
+        <Link
+          to="/pricing"
+          className="rounded-xl border px-3 py-1.5 text-sm hover:bg-gray-50"
+        >
+          了解付費方案
+        </Link>
+      </div>
+
       <ul className="space-y-2">
         {packs.map((p) => (
-          <li key={p.slug} className="rounded-lg border p-3 hover:bg-gray-50">
-            <Link
-              to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
-              className="underline"
-            >
+          <li key={p.slug} className="flex items-center justify-between rounded-lg border p-3 hover:bg-gray-50">
+            <div>
+              <Link
+                to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
+                className="underline"
+              >            
               {/* ✅ 使用 fallback → 後端有 title 就顯示 title，沒有就用對照表，再不然才用 slug */}
               {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
             </Link>
