@@ -32,6 +32,14 @@ async function fetchFirstOk<T = any>(paths: string[]): Promise<T> {
   throw new Error(`All candidates failed/404:\n${paths.join("\n")}`);
 }
 
+
+// ✅ 解法 1：放在檔案頂部（component 外面，避免每次 render 重新建立）
+const TITLE_FALLBACK: Record<string, string> = {
+  "chinese/grade1/numbers-1-20-high": "小一｜中文數學｜1–20 認識（高階）",
+  "chinese/grade1/colors-beginner": "小一｜中文｜顏色入門",
+  // 依你現有 slug 持續補齊…
+};
+
 export default function PacksPage() {
   const [packs, setPacks] = useState<Pack[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,8 +75,12 @@ export default function PacksPage() {
       <ul className="space-y-2">
         {packs.map((p) => (
           <li key={p.slug} className="rounded-lg border p-3 hover:bg-gray-50">
-            <Link to={`/quiz?slug=${encodeURIComponent(p.slug)}`} className="underline">
-              {p.title ?? p.slug}
+            <Link
+              to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
+              className="underline"
+            >
+              {/* ✅ 使用 fallback → 後端有 title 就顯示 title，沒有就用對照表，再不然才用 slug */}
+              {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
             </Link>
             <div className="text-sm text-gray-500">
               {[p.subject, p.grade].filter(Boolean).join(" · ")}
@@ -79,3 +91,4 @@ export default function PacksPage() {
     </div>
   );
 }
+
