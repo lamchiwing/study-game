@@ -2,7 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import PacksPage from "./pages/PacksPage";
 import QuizPage from "./pages/QuizPage";
 import UploadPage from "./pages/UploadPage";
-import ParentReportPage from "@/pages/ParentReportPage"; // ⬅️ 新增
+import ParentReportPage from "./pages/ParentReportPage";
+
 
 export default function App() {
   return (
