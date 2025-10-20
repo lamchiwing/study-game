@@ -91,7 +91,7 @@ export default function PacksPage() {
                 className="underline"
             >
               {/* ✅ 使用 fallback → 後端有 title 就顯示 title，沒有就用對照表，再不然才用 slug */}
-              {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
+              {TITLE_FALLBACK[p.slug] ?? {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
             </Link>
             <div className="text-sm text-gray-500">
               {[p.subject, p.grade].filter(Boolean).join(" · ")}
