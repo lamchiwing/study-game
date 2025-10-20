@@ -451,32 +451,39 @@ async function sendReportEmail() {
     detail_rows,
   };
 
-  try {
-    const res = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-User-Id": userId,              // ★ 關鍵：授權檢查用
-      },
-      body: JSON.stringify(payload),
-    });
+  // 範例：送出家長報告的 handler 內
+try {
+  const res = await fetch("/api/report/send", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-Id": userId || "",   // 你現在已有
+    },
+    body: JSON.stringify(payload),
+  });
 
-    if (res.status === 402) {
-      const { detail } = await res.json().catch(() => ({ detail: "" }));
-      alert(detail || "此功能需購買方案");
-      // 這裡可導去你的付款頁：
-      // window.location.href = "/pricing";
-      return;
-    }
-    if (!res.ok) {
-      throw new Error(await res.text());
-    }
-    alert("已寄出報告 ✉️");
-  } catch (err: any) {
-    alert(`寄送失敗：${err?.message || err}`);
+  if (res.status === 402) {
+    let msg = "此功能需購買方案";
+    try {
+      const json = await res.json();
+      if (json?.detail) msg = json.detail;
+    } catch {}
+    alert(msg);
+    // ✅ 付費導引入口 #2
+    window.location.href = "/pricing";
+    return;
   }
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || "發送失敗");
+  }
+
+  // 成功情況…
+} catch (err) {
+  alert((err as Error).message);
 }
- 
+
  
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
   const prevQ = () => idx > 0 && setIdx(idx - 1);
