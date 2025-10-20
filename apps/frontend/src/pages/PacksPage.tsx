@@ -89,7 +89,7 @@ export default function PacksPage() {
               <Link
                 to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
                 className="underline"
-              >            
+            >
               {/* ✅ 使用 fallback → 後端有 title 就顯示 title，沒有就用對照表，再不然才用 slug */}
               {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
             </Link>
@@ -102,4 +102,3 @@ export default function PacksPage() {
     </div>
   );
 }
-
