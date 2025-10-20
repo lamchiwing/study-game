@@ -2,10 +2,10 @@
 import os, io, csv, random, re
 from typing import Optional, List, Dict, Any
 
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException
+from fastapi import Header, FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from .entitlements import has_access  # 你專案已內建
+from .entitlements import has_access, get_user_profile  # 你專案已內建
 from .mailer_sendgrid import send_report_email
 
 import boto3
@@ -17,15 +17,31 @@ from app.mailer_sendgrid import send_report_email  # 僅保留這一行
 REPORT_PAID_ONLY = os.getenv("REPORT_PAID_ONLY", "1") == "1"
 EMAIL_RX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+# 如果你的 Pydantic model 還是強制 to_email，改成可選
+class ReportPayload(BaseModel):
+    to_email: Optional[str] = None          # ← 由必填改成可選
+    student_name: Optional[str] = None
+    grade: Optional[str] = None
+    score: int
+    total: int
+    duration_min: Optional[int] = None
+    summary: Optional[str] = None
+    detail_rows: Optional[list[dict]] = None
+
 def _parse_subject_grade(slug: str) -> tuple[str, int]:
+    """
+    "math/grade1/20m" -> ("math", 1)
+    "math/Grade02/setA" -> ("math", 2)
+    "chinese/g1/pack" -> ("chinese", 1)  # 若你將來改寫成 g1 也能支援
+    """
     # e.g. "math/grade1/20m" -> ("math", 1)
-    parts = (slug or "").split("/")
+    slug = (slug or "").strip().lower()
+    parts = slug.split("/") if slug else []
     subject = parts[0] if parts else ""
-    grade = 0
-    for p in parts:
-        if p.startswith("grade") and p[5:].isdigit():
-            grade = int(p[5:])
-            break
+
+     # 抓 grade 數字（gradeXX 或 gXX 都接受）
+    m = re.search(r"(?:grade|g)\s*(\d+)", slug)
+    grade = int(m.group(1)) if m else 0
     return subject, grade
 
 
