@@ -85,20 +85,28 @@ export default function PacksPage() {
       <ul className="space-y-2">
         {packs.map((p) => (
           <li key={p.slug} className="flex items-center justify-between rounded-lg border p-3 hover:bg-gray-50">
-            <div>
-              <Link
-                to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
-                className="underline"
-            >
-              {/* ✅ 使用 fallback → 後端有 title 就顯示 title，沒有就用對照表，再不然才用 slug */}
-              {TITLE_FALLBACK[p.slug] ?? {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
-            </Link>
-            <div className="text-sm text-gray-500">
-              {[p.subject, p.grade].filter(Boolean).join(" · ")}
-            </div>
-          </li>
-        ))}
-      </ul>
+  <div>
+    <Link
+      to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
+      className="underline"
+    >
+      {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
+    </Link>
+    <div className="text-sm text-gray-500">
+      {[p.subject, p.grade].filter(Boolean).join(" · ")}
     </div>
-  );
-}
+  </div>
+
+  {/* 如果有 isPaid，就顯示 badge；沒有就先拿掉這塊 */}
+  {typeof p.isPaid === "boolean" && (
+    <span
+      className={
+        "ml-3 rounded-full px-3 py-1 text-xs " +
+        (p.isPaid ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")
+      }
+      title={p.isPaid ? "此題包包含付費功能" : "免費題包"}
+    >
+      {p.isPaid ? "付費" : "免費"}
+    </span>
+  )}
+</li>
