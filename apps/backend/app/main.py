@@ -266,21 +266,25 @@ class ReportPayload(BaseModel):
 @app.post("/report/send")
 def send_report(
     payload: ReportPayload,
-    slug: str | None = Query(default=None),                 # 前端帶上目前測驗的 slug
+    slug: str | None = Query(default=None),                  # 前端帶目前題包 slug
     x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ):
-    # 1) 權限：若開啟限制，未購買則拒絕
+    # 1) 付費/授權檢查（需購買才可寄）
     if REPORT_PAID_ONLY:
-        subject_code, grade = _parse_subject_grade(slug or "")
-        if not has_access(x_user_id, subject_code, grade):
+        subject_code, grade_num = _parse_subject_grade(slug or "")
+        if not has_access(x_user_id, subject_code, grade_num):
             raise HTTPException(status_code=402, detail="報告功能需購買方案")
 
-    # 2) 參數檢查
-    to_email = (payload.to_email or "").strip()
-    if not to_email or not EMAIL_RX.match(to_email):
-        raise HTTPException(status_code=400, detail="收件電郵格式不正確")
+    # 2) 從使用者資料查家長電郵/學生資料（payload 只作覆蓋）
+    profile = get_user_profile(x_user_id) if x_user_id else None  # 例如 {"parent_email": "...", "student_name": "...", "grade": "P1"}
 
-    student_name = (payload.student_name or "").strip()
+    to_email = (payload.to_email or (profile or {}).get("parent_email") or "").strip()
+    if not to_email or not EMAIL_RX.match(to_email):
+        raise HTTPException(status_code=400, detail="找不到家長電郵，請先在帳戶設定綁定")
+
+    student_name = (payload.student_name or (profile or {}).get("student_name") or "").strip()
+    grade_label = (payload.grade or (profile or {}).get("grade") or "").strip()
+
     sc = max(0, int(payload.score or 0))
     tt = max(0, int(payload.total or 0))
     subject_line = f"{student_name or '學生'} 今日練習報告：{sc}/{tt}"
@@ -289,38 +293,38 @@ def send_report(
     def esc(s: str | None) -> str:
         return html.escape(str(s or ""), quote=True)
 
+    # 4) 明細表（最多 50 筆）
     rows_html = ""
     if payload.detail_rows:
-        rows_html_parts = [
+        parts = [
             "<table style='width:100%;border-collapse:collapse;font-size:14px'>",
             "<tr><th align='left'>題目</th><th align='left'>你的答案</th><th align='left'>正確答案</th></tr>",
         ]
-        for r in (payload.detail_rows or [])[:50]:  # 上限 50 筆
+        for r in (payload.detail_rows or [])[:50]:
             q = esc(r.get("q"))
             a = esc(r.get("yourAns"))
             c = esc(r.get("correct"))
-            rows_html_parts.append(
+            parts.append(
                 "<tr>"
                 f"<td style='border-top:1px solid #eee;padding:6px 4px'>{q}</td>"
                 f"<td style='border-top:1px solid #eee;padding:6px 4px'>{a}</td>"
                 f"<td style='border-top:1px solid #eee;padding:6px 4px'>{c}</td>"
                 "</tr>"
             )
-        rows_html_parts.append("</table>")
-        rows_html = "".join(rows_html_parts)
+        parts.append("</table>")
+        rows_html = "".join(parts)
 
-    # 4) 內文
+    # 5) 其他欄位
     summary_html = ""
     if payload.summary:
-        # 支援簡單換行；仍然全部轉義避免 XSS
         summary_html = f"<p style='margin-top:8px'>{esc(payload.summary).replace('\\n','<br>')}</p>"
-
     duration = f" · 用時：{int(payload.duration_min)} 分" if payload.duration_min else ""
 
+    # 6) 信件 HTML
     html_body = f"""
     <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif">
       <h2 style="margin:0 0 8px">學習報告</h2>
-      <div>學生：<b>{esc(student_name)}</b>{' · 年級：'+esc(payload.grade) if payload.grade else ''}</div>
+      <div>學生：<b>{esc(student_name)}</b>{(' · 年級：'+esc(grade_label)) if grade_label else ''}</div>
       <div>分數：<b>{sc}/{tt}</b>{duration}</div>
       {summary_html}
       {rows_html}
@@ -330,8 +334,8 @@ def send_report(
     </div>
     """.strip()
 
+    # 7) 寄送
     ok, err = send_report_email(to_email, subject_line, html_body)
     if not ok:
-        # 轉拋 SendGrid 失敗訊息
         raise HTTPException(status_code=502, detail=f"寄送失敗：{err}")
     return {"ok": True}
