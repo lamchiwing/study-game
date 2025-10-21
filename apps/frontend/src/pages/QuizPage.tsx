@@ -289,6 +289,7 @@ export default function QuizPage() {
             if (q.type === "tf") return null;
             if (q.type === "fill") return "";
             if (q.type === "match") return Array((q as QMatch).left.length).fill(null);
+            } 
             return null;
           })
         );
