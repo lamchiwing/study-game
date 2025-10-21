@@ -815,15 +815,28 @@ try {
       </div>
 
       <div className="flex items-center justify-between">
-        <button onClick={prevQ} disabled={idx === 0} className="rounded border px-3 py-2 disabled:opacity-50">← Prev</button>
+        <button
+          onClick={prevQ}
+          disabled={idx === 0}
+          className="rounded border px-3 py-2 disabled:opacity-50"
+        >
+          ← Prev
+        </button>
+
         <div className="text-sm text-gray-600">
           {q.type === "fill"
-            ? String(a ?? "").trim() ? "已填寫" : "請填寫答案"
+            ? String(a ?? "").trim()
+              ? "已填寫"
+              : "請填寫答案"
             : a == null || (Array.isArray(a) && a.some((x) => x == null))
             ? "請選擇答案"
             : "已選擇"}
         </div>
-        <button onClick={nextQ} className="rounded bg-black px-3 py-2 text-white">
+
+        <button
+          onClick={nextQ}
+          className="rounded bg-black px-3 py-2 text-white"
+        >
           {idx < questions.length - 1 ? "Next →" : "Finish ✅"}
         </button>
       </div>
