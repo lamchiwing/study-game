@@ -1,4 +1,4 @@
-# apps/backend/app/main.py
+# --- imports (替換你原本的這幾行) ---
 import os, io, csv, random, re, html
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -6,12 +6,21 @@ from fastapi import Header, FastAPI, UploadFile, File, Query, HTTPException, Req
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from .entitlements import has_access, get_user_profile
+# ✅ has_access 一定要；get_user_profile 沒有也不會掛
+try:
+    from .entitlements import has_access, get_user_profile as _get_user_profile
+except Exception:
+    from .entitlements import has_access  # 只拿到 has_access 也可以
+    def _get_user_profile(_user_id: Optional[str]) -> Dict[str, Any]:
+        # 後備：若你的系統尚未實作 user profile，就回空值讓下游 fallback
+        return {}
+
 from .mailer_sendgrid import send_report_email
 
 import boto3
 from botocore.config import Config
 from pydantic import BaseModel
+
 
 # -------------------------------
 # Feature flags & regex
@@ -288,7 +297,7 @@ def send_report(
             raise HTTPException(status_code=402, detail="報告功能需購買方案")
 
     # 2) 從使用者資料查家長電郵/學生資料（payload 可覆蓋）
-    profile = get_user_profile(x_user_id) if x_user_id else None  # 例如 {"parent_email": "...", "student_name": "...", "grade": "P1"}
+    profile = _get_user_profile(x_user_id) if x_user_id else None  # 例如 {"parent_email": "...", "student_name": "...", "grade": "P1"}
     to_email = (payload.to_email or (profile or {}).get("parent_email") or "").strip()
     if not to_email or not EMAIL_RX.match(to_email):
         raise HTTPException(status_code=400, detail="找不到家長電郵，請先在帳戶設定綁定")
