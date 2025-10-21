@@ -1,491 +1,365 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+// apps/frontend/src/pages/QuizPage.tsx
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { fetchQuestions as _fetchQuestions } from "../lib/api";
 import { motion, AnimatePresence } from "framer-motion";
+import { renderContent, stripBBCode } from "../lib/bbcode";
 
-/* -----------------------------------------------------------
-   BBCode → HTML（含 legacy 標籤 -> [c=token]）
-   需在 index.css 設定 :root { --c-ai:..., --c-yamabuki:..., ... }
------------------------------------------------------------ */
-function preprocessBBCodeToHTML(input?: string): string {
-  let t = input ?? "";
 
-  // legacy → 統一為 [c=token] / [bgc=token]
-  t = t
-    .replace(/\[red\](.*?)\[\/red\]/gis, "[c=kurenai]$1[/c]")
-    .replace(/\[blue\](.*?)\[\/blue\]/gis, "[c=ai]$1[/c]")
-    .replace(/\[green\](.*?)\[\/green\]/gis, "[c=wakaba]$1[/c]")
-    .replace(/\[yellow\](.*?)\[\/yellow\]/gis, "[c=yamabuki]$1[/c]")
-    .replace(/\[orange\](.*?)\[\/orange\]/gis, "[c=orange]$1[/c]")
-    .replace(/\[purple\](.*?)\[\/purple\]/gis, "[c=purple]$1[/c]")
-    .replace(/\[bgorange\](.*?)\[\/bgorange\]/gis, "[bgc=orange]$1[/bgc]")
-    .replace(/\[bgpurple\](.*?)\[\/bgpurple\]/gis, "[bgc=purple]$1[/bgc]");
-
-  // 動態字色 / 底色
-  t = t.replace(/\[c=([a-z0-9_-]+)\](.*?)\[\/c\]/gis, (_m, token, body) =>
-    `<span style="color:var(--c-${token})">${body}</span>`
-  );
-  t = t.replace(/\[bgc=([a-z0-9_-]+)\](.*?)\[\/bgc\]/gis, (_m, token, body) =>
-    `<span class="jp-bg" data-c="${token}" style="background:var(--c-${token})">${body}</span>`
-  );
-
-  // UI 顯示時移除「（測試別名…）」註記
-  t = t.replace(/（\s*測試別名[^）]*）/g, "");
-
-  return t;
-}
-
-// 純文字（給 <option> 等）
-function stripBBCode(input?: string): string {
-  const t = preprocessBBCodeToHTML(input);
-  return t.replace(/<[^>]+>/g, "").replace(/\[\/?\w+(?:=[^\]]+)?\]/g, "").trim();
-}
-
-// 安全渲染
-function renderContent(text?: string) {
-  if (!text) return null;
-  const html = preprocessBBCodeToHTML(text);
-  return <span dangerouslySetInnerHTML={{ __html: html }} />;
-}
-
-/* ---------------- 型別 ---------------- */
-type Raw = any;
-type QBase = { id: string | number; stem: string; image?: string; explain?: string };
-
-type QMCQ = QBase & {
+/* =========================================================
+   類型宣告
+========================================================= */
+type QMCQ = {
+  id?: string;
   type: "mcq";
+  stem: string;                 // 內部統一用 stem 渲染
   choices: string[];
   answerLetter?: "A" | "B" | "C" | "D";
   answerText?: string;
+  explain?: string;
+  image?: string;
 };
-type QTF = QBase & { type: "tf"; answerBool: boolean };
-type QFill = QBase & { type: "fill"; acceptable: string[] };
-type QMatch = QBase & { type: "match"; left: string[]; right: string[]; answerMap: number[] };
-type NormQ = QMCQ | QTF | QFill | QMatch;
 
-const normStr = (s?: string) => (s ?? "").trim().toLowerCase();
-const up = (s?: string) => (s ?? "").trim().toUpperCase();
+type QTF = {
+  id?: string;
+  type: "tf";
+  stem: string;
+  answerBool: boolean;
+  explain?: string;
+  image?: string;
+};
 
-/* ---------------- 正規化 ---------------- */
-function normalizeOne(raw: Raw, i: number): NormQ {
-  const typeHint = String(raw.type ?? raw.kind ?? raw.questionType ?? "").toLowerCase();
-  const base: QBase = {
-    id: raw.id ?? i,
-    stem: raw.question ?? raw.stem ?? "",
-    image: raw.image,
-    explain: raw.explain ?? raw.explanation,
-  };
+type QFill = {
+  id?: string;
+  type: "fill";
+  stem: string;
+  acceptable: string[];         // 可接受答案（大小寫/空白正規化後比對）
+  explain?: string;
+  image?: string;
+};
 
-  // 強韌 MATCH 解析：支援 pairs 為字串/陣列/物件，與多鍵名
-  if (Array.isArray(raw.pairs) || typeof raw.pairs === "string" || (raw.pairs && typeof raw.pairs === "object")) {
-    try {
-      let s: any = raw.pairs;
+type QMatch = {
+  id?: string;
+  type: "match";
+  stem: string;
+  left: string[];
+  right: string[];
+  answerMap: number[];          // left[i] 對應 right[answerMap[i]]
+  explain?: string;
+  image?: string;
+};
 
-      // 若是字串 → 去殼 / 還原 / 解析（含雙重 JSON、HTML 實體、CSV 轉義、base64）
-      if (typeof s === "string") {
-        let txt = s.trim();
-        if (txt.startsWith("'") && txt.endsWith("'")) txt = txt.slice(1, -1);
-        const maybeB64 = /^[A-Za-z0-9+/=\r\n]+$/.test(txt) && txt.length % 4 === 0;
-        if (maybeB64) {
-          try {
-            // atob 在瀏覽器可用
-            const decoded = (typeof atob === "function") ? atob(txt.replace(/\s+/g, "")) : txt;
-            if (decoded.trim().startsWith("[") || decoded.trim().startsWith("{")) txt = decoded;
-          } catch {}
-        }
-        txt = txt.replace(/&quot;/g, '"').replace(/&#34;/g, '"').replace(/\\"/g, '"').replace(/""/g, '"');
-        s = JSON.parse(txt);
-        if (typeof s === "string" && s.trim().startsWith("[")) s = JSON.parse(s);
-      }
+type Question = QMCQ | QTF | QFill | QMatch;
 
-      // 物件形：{ left:[...], right:[...], map/answerMap/index:[...] }
-      if (s && typeof s === "object" && !Array.isArray(s)) {
-        const leftArr  = s.left  ?? s.Left  ?? s.l ?? s.L;
-        const rightArr = s.right ?? s.Right ?? s.r ?? s.R ?? s.value ?? s.values;
-        const mapArr   = s.answerMap ?? s.map ?? s.index ?? s.match ?? s.mapping;
-        if (Array.isArray(leftArr) && Array.isArray(rightArr)) {
-          const left  = leftArr.map(String);
-          const right = rightArr.map(String);
-          const answerMap = Array.isArray(mapArr)
-            ? mapArr.map((n: any) => Number(n))
-            : left.map((L: string) => right.findIndex((R: string) => normStr(R) === normStr(L)));
-          if (left.length && right.length && answerMap.length === left.length)
-            return { ...base, type: "match", left, right, answerMap };
-        }
-      }
+type ApiQuestionRow = {
+  id?: string;
+  type?: string;                // "mcq" | "tf" | "fill" | "match"
+  question?: string;
+  choiceA?: string;
+  choiceB?: string;
+  choiceC?: string;
+  choiceD?: string;
+  answer?: string;              // MCQ: "A"/"B"/"C"/"D" 或文字；TF: "true"/"false"；Fill: 文字；Match: 可能是 JSON
+  answers?: string;             // Fill 多答案以 | 分隔；或 JSON
+  explain?: string;
+  image?: string;
+  pairs?: string;               // JSON 或留空
+  left?: string;
+  right?: string;
+  answerMap?: string;           // "0,2,1" / JSON
+};
 
-      // 陣列形：[{left,right}]（容忍大小寫與縮寫）
-      if (Array.isArray(s)) {
-        const pick = (o: any, keys: string[]) => {
-          for (const k of keys) if (o && o[k] != null) return o[k];
-          return undefined;
-        };
-        const arr = s
-          .map((x) => {
-            const L = pick(x, ["left", "Left", "l", "L", "from", "key", "src"]);
-            const R = pick(x, ["right", "Right", "r", "R", "to", "value", "dst"]);
-            if (L == null || R == null) return null;
-            return { left: String(L), right: String(R) };
-          })
-          .filter(Boolean) as Array<{ left: string; right: string }>;
-        if (arr.length) {
-          const left = arr.map((p) => p.left);
-          const right = arr.map((p) => p.right);
-          const answerMap = left.map((L) =>
-            right.findIndex((R) => normStr(R) === normStr((arr.find((x) => x.left === L) as any)?.right))
-          );
-          return { ...base, type: "match", left, right, answerMap };
-        }
-      }
-    } catch {}
-  }
+type ApiQuizResponse = {
+  title?: string;
+  list?: ApiQuestionRow[];
+  usedUrl?: string;
+  debug?: string;
+};
 
-  // 備援 1：管線字串 left/right/answerMap
-  if ((typeof raw.left === "string" && typeof raw.right === "string") || typeof raw.answerMap === "string") {
-    const left = String(raw.left ?? "").split("|").map((s) => s.trim()).filter(Boolean);
-    const right = String(raw.right ?? "").split("|").map((s) => s.trim()).filter(Boolean);
-    const answerMap = String(raw.answerMap ?? "")
-      .split("|").map((s) => s.trim()).filter(Boolean).map(Number);
-    if (left.length && right.length && answerMap.length === left.length)
-      return { ...base, type: "match", left, right, answerMap };
-  }
+/* =========================================================
+   常數與工具
+========================================================= */
+const SHOW_DEBUG = import.meta.env.DEV ?? false;
 
-  // 備援 2：原生陣列（嚴格三欄）
-  if (Array.isArray(raw.left) && Array.isArray(raw.right) && Array.isArray(raw.answerMap)) {
+// 簡化 BBCode：只處理 [c=name]...[/c] → <span style="color:var(--c-name)">...</span>
+function renderContent(s: string | undefined): React.ReactNode {
+  const t = String(s ?? "");
+  // [c=ai]文字[/c] → <span style="color:var(--c-ai)">文字</span>
+  return (
+    <span
+      dangerouslySetInnerHTML={{
+        __html: t
+          .replace(/\[c=([a-z0-9_-]+)\]/gi, (_m, c) => `<span style="color:var(--c-${c})">`)
+          .replace(/\[\/c\]/gi, "</span>"),
+      }}
+    />
+  );
+}
+
+// 去掉 BBCode（用於 <option> 文字）
+function stripBBCode(s: string): string {
+  return String(s ?? "")
+    .replace(/\[c=[^\]]+\]/gi, "")
+    .replace(/\[\/c\]/gi, "");
+}
+
+function normStr(x: string): string {
+  return String(x ?? "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+// 從 API row 轉為我們內部 Question 結構
+function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
+  const t = (r.type || "").toLowerCase();
+  const stem = r.question || "";
+
+  if (t === "mcq") {
+    const choices = [r.choiceA ?? "", r.choiceB ?? "", r.choiceC ?? "", r.choiceD ?? ""];
+    let answerLetter: "A" | "B" | "C" | "D" | undefined = undefined;
+    let answerText: string | undefined = undefined;
+
+    if (r.answer && /^[ABCD]$/i.test(r.answer)) {
+      answerLetter = r.answer.toUpperCase() as any;
+    } else if (r.answer) {
+      // 有些題庫是文字答案
+      answerText = r.answer;
+    }
     return {
-      ...base,
-      type: "match",
-      left: raw.left.map(String),
-      right: raw.right.map(String),
-      answerMap: raw.answerMap.map((n: any) => Number(n)),
+      id: r.id || String(idx + 1),
+      type: "mcq",
+      stem,
+      choices,
+      answerLetter,
+      answerText,
+      explain: r.explain,
+      image: r.image,
     };
   }
 
-  // TF
-  const A = up(raw.answer);
-  if (
-    typeHint === "tf" || typeHint === "truefalse" ||
-    A === "T" || A === "F" || A === "TRUE" || A === "FALSE" ||
-    typeof raw.answerBool === "boolean"
-  ) {
-    const answerBool = typeof raw.answerBool === "boolean" ? raw.answerBool : A === "T" || A === "TRUE";
-    return { ...base, type: "tf", answerBool };
+  if (t === "tf") {
+    const bool =
+      typeof r.answer === "string"
+        ? ["true", "t", "1", "yes", "y"].includes(r.answer.toLowerCase())
+        : false;
+    return {
+      id: r.id || String(idx + 1),
+      type: "tf",
+      stem,
+      answerBool: bool,
+      explain: r.explain,
+      image: r.image,
+    };
   }
 
-  // FILL
-  const hasChoices =
-    (Array.isArray(raw.choices) && raw.choices.length > 0) ||
-    ["choiceA", "choiceB", "choiceC", "choiceD"].some((k) => raw[k]);
-  if (typeHint === "fill" || (!hasChoices && (raw.answer || raw.answers))) {
-    const acceptable = Array.isArray(raw.answers)
-      ? raw.answers.map(normStr)
-      : String(raw.answer ?? "").split("|").map(normStr).filter(Boolean);
-    return { ...base, type: "fill", acceptable };
+  if (t === "fill") {
+    // answers 可能以 | 分隔，或 JSON
+    let acc: string[] = [];
+    if (r.answers && r.answers.trim().startsWith("[")) {
+      try {
+        acc = JSON.parse(r.answers);
+      } catch {
+        acc = [];
+      }
+    } else if (r.answers) {
+      acc = r.answers.split("|").map((x) => x.trim()).filter(Boolean);
+    } else if (r.answer) {
+      acc = [r.answer];
+    }
+    return {
+      id: r.id || String(idx + 1),
+      type: "fill",
+      stem,
+      acceptable: acc.length ? acc : [r.answer ?? ""].filter(Boolean),
+      explain: r.explain,
+      image: r.image,
+    };
   }
 
-  // MCQ
-  const choices: string[] = Array.isArray(raw.choices)
-    ? raw.choices
-    : ["choiceA", "choiceB", "choiceC", "choiceD"].map((k) => raw[k]).filter(Boolean);
-  const letter = up(raw.answer);
-  const answerLetter = (["A", "B", "C", "D"] as const).includes(letter as any)
-    ? (letter as "A" | "B" | "C" | "D")
-    : undefined;
-  const answerText = !answerLetter ? String(raw.answer ?? "").trim() : undefined;
+  // match
+  // left/right/answerMap 可能是逗號分隔或 JSON
+  const left = parseList(r.left);
+  const right = parseList(r.right);
+  let answerMap: number[] = [];
 
-  return { ...base, type: "mcq", choices, answerLetter, answerText };
-}
-
-function normalizeList(raw: unknown): NormQ[] {
-  const list =
-    Array.isArray(raw) ? raw :
-    Array.isArray((raw as any)?.list) ? (raw as any).list :
-    Array.isArray((raw as any)?.questions) ? (raw as any).questions :
-    [];
-  return list.map(normalizeOne);
-}
-
-/* ---------------- 判題 ---------------- */
-function isCorrect(q: NormQ, ans: any): boolean {
-  switch (q.type) {
-    case "mcq":
-      if (ans == null || typeof ans !== "number") return false;
-      if (q.answerLetter) return "ABCD".indexOf(q.answerLetter) === ans;
-      if (q.answerText) return normStr(q.answerText) === normStr(q.choices[ans] ?? "");
-      return false;
-    case "tf":
-      return typeof ans === "boolean" && ans === q.answerBool;
-    case "fill":
-      return typeof ans === "string" && q.acceptable.includes(normStr(ans));
-    case "match":
-      return Array.isArray(ans) && ans.every((v, i) => Number(v) === q.answerMap[i]);
+  if (r.answerMap) {
+    if (r.answerMap.trim().startsWith("[")) {
+      try {
+        answerMap = JSON.parse(r.answerMap);
+      } catch {
+        answerMap = [];
+      }
+    } else {
+      answerMap = r.answerMap
+        .split(",")
+        .map((x) => x.trim())
+        .filter((x) => x !== "")
+        .map((x) => Number(x));
+    }
   }
+
+  // 長度保護
+  const n = Math.min(left.length, right.length);
+  const L = left.slice(0, n);
+  const R = right.slice(0, n);
+  const A = answerMap.length === n ? answerMap : Array.from({ length: n }, (_, i) => i);
+
+  return {
+    id: r.id || String(idx + 1),
+    type: "match",
+    stem,
+    left: L,
+    right: R,
+    answerMap: A,
+    explain: r.explain,
+    image: r.image,
+  };
 }
 
-// ---------------- 抽題工具方法（隨機取 10~15 題） ----------------
-function shuffleInPlace<T>(arr: T[]) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+function parseList(x?: string): string[] {
+  if (!x) return [];
+  const s = x.trim();
+  if (!s) return [];
+  if (s.startsWith("[")) {
+    try {
+      const arr = JSON.parse(s);
+      return Array.isArray(arr) ? arr.map((v) => String(v)) : [];
+    } catch {
+      return [];
+    }
   }
-}
-function pickN(list: any[], nMin = 10, nMax = 15) {
-  const n = Math.max(nMin, Math.min(nMax, Math.floor(nMin + Math.random() * (nMax - nMin + 1))));
-  const copy = list.slice();
-  shuffleInPlace(copy);
-  return copy.slice(0, Math.min(copy.length, n));
+  return s.split("|").map((v) => v.trim());
 }
 
-
-/* ---------------- 頁面 ---------------- */
+/* =========================================================
+   組件
+========================================================= */
 export default function QuizPage() {
   const [sp] = useSearchParams();
-  // 取得 slug 時順手去掉前後空白
-  const slug = (sp.get("slug") ?? "").trim();
- 
+  const slug = sp.get("slug") || "";
 
-  const [questions, setQuestions] = useState<NormQ[]>([]);
   const [loading, setLoading] = useState(true);
-  const [apiUrl, setApiUrl] = useState<string | undefined>();
-  const SHOW_DEBUG = import.meta.env.DEV;
- 
+  const [apiUrl, setApiUrl] = useState<string | null>(null);
+  const [debug, setDebug] = useState<string | null>(null);
+  const [packTitle, setPackTitle] = useState("");
 
-  const [idx, setIdx] = useState(0);
+  const [questions, setQuestions] = useState<Question[]>([]);
   const [answers, setAnswers] = useState<any[]>([]);
+  const [idx, setIdx] = useState(0);
   const [done, setDone] = useState(false);
-
-  // 分數動畫：+1 浮現
-  const prevScoreRef = useRef(0);
   const [popPlusOne, setPopPlusOne] = useState(false);
-  const [packTitle, setPackTitle] = useState<string>(""); 
 
+  // 取得 UserId（示例：從 localStorage）
+  const userId = useMemo(() => localStorage.getItem("uid") || "", []);
+
+  /* -----------------------------
+     載入題目
+  ----------------------------- */
   useEffect(() => {
-    if (!slug) {
-      setQuestions([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setDone(false);
-    (async () => {
+    let alive = true;
+    async function run() {
+      setLoading(true);
       try {
-        
-        const ret: any = await _fetchQuestions(slug);
-        const full = normalizeList(ret?.list ?? ret);
+        const url = `/api/quiz?slug=${encodeURIComponent(slug)}`;
+        const r = await fetch(url);
+        const ret = (await r.json()) as ApiQuizResponse;
 
-      // 支援網址參數 n，例如 ?n=12
-        const nParam = Number(sp.get("n"));
-        const subset =
-          Number.isFinite(nParam) && nParam > 0
-            ? full.slice().sort(() => Math.random() - 0.5).slice(0, nParam)
-            : pickN(full, 10, 15);
-        
-        setApiUrl(ret?.usedUrl);
-        setPackTitle(ret?.title || "")
-        setQuestions(subset);
+        setApiUrl(ret?.usedUrl || null);
+        setDebug(ret?.debug || null);
+        setPackTitle(ret?.title || "");
+
+        const list = (ret?.list ?? []).map(mapRowToQuestion);
+        setQuestions(list);
+
+        // 初始化答案陣列
         setAnswers(
-          subset.map((q) => {              // ✅ 改用 subset
+          list.map((q) => {
             if (q.type === "mcq") return null;
             if (q.type === "tf") return null;
             if (q.type === "fill") return "";
             if (q.type === "match") return Array((q as QMatch).left.length).fill(null);
-            } 
             return null;
           })
         );
-        
         setIdx(0);
-        setApiUrl(ret?.usedUrl);
-        setPackTitle(ret?.title || ""); 
-      } catch (e: any) {
-        console.warn("fetchQuestions failed:", e);
+        setDone(false);
+      } catch (e) {
+        console.error(e);
         setQuestions([]);
-        setApiUrl(undefined);      
+        setAnswers([]);
       } finally {
-        setLoading(false);
+        if (alive) setLoading(false);
       }
-    })();
+    }
+    if (slug) run();
+    return () => {
+      alive = false;
+    };
   }, [slug]);
 
-  // 計分（答對一題 +1）
-  const { score, total } = useMemo(() => {
-    if (!questions?.length) return { score: 0, total: 0 };
+  /* -----------------------------
+     衍生：當前分數
+  ----------------------------- */
+  const score = useMemo(() => {
     let s = 0;
-    for (let i = 0; i < questions.length; i++) {
-      if (isCorrect(questions[i], answers[i])) s += 1;
-    }
-    return { score: s, total: questions.length };
+    questions.forEach((q, i) => {
+      if (isCorrect(q, answers[i])) s += 1;
+    });
+    return s;
   }, [questions, answers]);
 
-  // 分數上升觸發 +1 動畫
-  useEffect(() => {
-    if (score > prevScoreRef.current) {
-      setPopPlusOne(true);
-      const t = setTimeout(() => setPopPlusOne(false), 600);
-      prevScoreRef.current = score;
-      return () => clearTimeout(t);
-    }
-    prevScoreRef.current = score;
-  }, [score]);
+  const total = questions.length;
 
-  // ✅ MCQ：已答就不再改
-  const pickMCQ = (i: number) =>
-    setAnswers((prev) => {
-      if (prev[idx] != null) return prev;        // ← 關鍵：鎖定
-      const next = prev.slice();
-      next[idx] = i;
-      return next;
-  });
-
-// ✅ TF：已答就不再改
-  const pickTF = (b: boolean) =>
-    setAnswers((prev) => {
-      if (prev[idx] != null) return prev;        // ← 關鍵：鎖定
-      const next = prev.slice();
-      next[idx] = b;
-      return next;
-   });
-
-// ✅ Match：每一列選定後鎖該列（可改成鎖整題，看你需求）
-  const pickMatch = (li: number, ri: number | null) =>
+  /* -----------------------------
+     互動：選擇答案
+  ----------------------------- */
+  function pickMCQ(i: number) {
+    // 已選就只能切回同一個；其他禁用（在渲染層控制）
     setAnswers((prev) => {
       const cur = prev[idx];
-      if (Array.isArray(cur) && cur[li] != null) return prev; // 該列已選，就不改
-      const next = prev.slice();
-      const arr = (next[idx] as Array<number | null>).slice();
-      arr[li] = ri;
-      next[idx] = arr;
-      return next;
-   });
+      if (cur != null && cur !== i) return prev; // 已選其他 → 不變
+      const copy = prev.slice();
+      copy[idx] = i;
+      // +1 浮現
+      if (isCorrect(questions[idx], i)) {
+        setPopPlusOne(true);
+        setTimeout(() => setPopPlusOne(false), 650);
+      }
+      // 若想自動下一題，可在此 setIdx(idx+1)
+      return copy;
+    });
+  }
 
-  // ✅ Fill：輸入框處理（預設可改；想鎖首輸入可看下面備註）
-  const fillText = (v: string) =>
+  function pickTF(val: boolean) {
     setAnswers((prev) => {
-    // 想「第一次輸入後就鎖定不讓再改」→ 解除下一行註解
-    // if (prev[idx] && String(prev[idx]).trim() !== "") return prev;
-
-    const next = prev.slice();
-    next[idx] = v;
-    return next;
-   });
-
-  // 追蹤開始時間（用來算用時）
-const startedAtRef = useRef<number>(Date.now());
-
-// 寄出家長報告
-async function sendReportEmail() {
-  // 後端 base：優先用 .env 的 VITE_API_BASE，否則用 /api 反向代理
-  const API_BASE = (import.meta as any).env?.VITE_API_BASE || "/api";
-  const endpoint = `${API_BASE.replace(/\/$/, "")}/report/send?slug=${encodeURIComponent(slug)}`;
-
-  // 假用戶（之後換成你登入系統的 userId）
-  const userId = "user_002";
-
-  // 準備 detail_rows
-  const detail_rows = questions.map((q, i) => {
-    const your = answers[i];
-    const yourText = (() => {
-      switch (q.type) {
-        case "mcq":
-          return your != null ? `${"ABCD"[your as number]}. ${stripBBCode(q.choices[your as number])}` : "";
-        case "tf":
-          return your == null ? "" : your ? "True" : "False";
-        case "fill":
-          return String(your ?? "");
-        case "match": {
-          const arr = your as Array<number | null>;
-          const pairs = (q.left as string[]).map((L, li) => {
-            const ri = arr?.[li];
-            const R = ri != null ? q.right[ri] : "—";
-            return `${stripBBCode(L)} → ${stripBBCode(R)}`;
-          });
-          return pairs.join(" | ");
-        }
+      const cur = prev[idx];
+      if (cur != null && cur !== val) return prev; // 已選另一邊 → 不變
+      const copy = prev.slice();
+      copy[idx] = val;
+      if (isCorrect(questions[idx], val)) {
+        setPopPlusOne(true);
+        setTimeout(() => setPopPlusOne(false), 650);
       }
-    })();
-
-    const correctText = (() => {
-      switch (q.type) {
-        case "mcq":
-          if (q.answerLetter) {
-            const idx = "ABCD".indexOf(q.answerLetter);
-            return `${q.answerLetter}. ${stripBBCode(q.choices[idx])}`;
-          }
-          if (q.answerText) {
-            const idx = q.choices.findIndex(c => normStr(c) === normStr(q.answerText!));
-            const letter = idx >= 0 ? "ABCD"[idx] : "?";
-            return `${letter}. ${stripBBCode(q.answerText)}`;
-          }
-          return "";
-        case "tf":
-          return q.answerBool ? "True" : "False";
-        case "fill":
-          return (q.acceptable || []).join(" | ");
-        case "match": {
-          const pairs = q.left.map((L, li) => {
-            const ri = q.answerMap[li];
-            const R = q.right[ri];
-            return `${stripBBCode(L)} → ${stripBBCode(R)}`;
-          });
-          return pairs.join(" | ");
-        }
-      }
-    })();
-
-    return {
-      q: stripBBCode(q.stem),
-      yourAns: yourText,
-      correct: correctText,
-    };
-  });
-
-  const duration_min = Math.max(0, Math.round((Date.now() - startedAtRef.current) / 60000));
-
-  const payload = {
-    to_email: "parent@example.com",        // ← 這裡換成家長 email
-    student_name: "學生姓名",               // ← 可帶入你的真實姓名
-    grade: "",                             // 例如 "P1"（可留空）
-    score,
-    total,
-    duration_min,
-    summary: "",                           // 想加短評可寫在這
-    detail_rows,
-  };
-
-  // 範例：送出家長報告的 handler 內
-try {
-  const res = await fetch("/api/report/send", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-User-Id": userId || "",   // 你現在已有
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (res.status === 402) {
-    let msg = "此功能需購買方案";
-    try {
-      const json = await res.json();
-      if (json?.detail) msg = json.detail;
-    } catch {}
-    alert(msg);
-    // ✅ 付費導引入口 #2
-    window.location.href = "/pricing";
-    return;
+      return copy;
+    });
   }
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || "發送失敗");
+  function fillText(v: string) {
+    setAnswers((prev) => {
+      const copy = prev.slice();
+      copy[idx] = v;
+      return copy;
+    });
   }
 
-  // 成功情況…
-} catch (err) {
-  alert((err as Error).message);
-}
+  function pickMatch(li: number, ri: number | null) {
+    setAnswers((prev) => {
+      const cur = (prev[idx] ?? []) as Array<number | null>;
+      const arr = Array.isArray(cur) ? cur.slice() : [];
+      arr[li] = ri;
+      const copy = prev.slice();
+      copy[idx] = arr;
+      return copy;
+    });
+  }
 
- 
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
   const prevQ = () => idx > 0 && setIdx(idx - 1);
   const restart = () => {
@@ -502,6 +376,153 @@ try {
     setDone(false);
   };
 
+  /* -----------------------------
+     郵件報告
+  ----------------------------- */
+  async function sendReportEmail() {
+    try {
+      const detail_rows = questions.map((q, i) => {
+        const ok = isCorrect(q, answers[i]);
+        return {
+          q: stripBBCode(q.stem),
+          yourAns: formatYourAnswer(q, answers[i]),
+          correct: formatCorrectAnswer(q),
+          ok,
+        };
+      });
+
+      const payload = {
+        to_email: "", // 若後端會從 profile 取，這裡可留空
+        student_name: "",
+        grade: "",
+        score,
+        total,
+        duration_min: undefined,
+        summary: "",
+        detail_rows,
+      };
+
+      const res = await fetch(`/api/report/send?slug=${encodeURIComponent(slug)}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-Id": userId || "",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.status === 402) {
+        // 需要付費
+        let msg = "此功能需購買方案";
+        try {
+          const j = await res.json();
+          if (j?.detail) msg = j.detail;
+        } catch {}
+        alert(msg);
+        window.location.href = "/pricing";
+        return;
+      }
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "發送失敗");
+      }
+
+      alert("已寄出學習報告！");
+    } catch (err: any) {
+      alert(err?.message || String(err));
+    }
+  }
+
+  /* -----------------------------
+     輔助：判分與格式化
+  ----------------------------- */
+  function isCorrect(q: Question, a: any): boolean {
+    if (q.type === "mcq") {
+      if (a == null) return false;
+      if (q.answerLetter) {
+        const i = "ABCD".indexOf(q.answerLetter);
+        return i === a;
+      }
+      if (q.answerText) {
+        const picked = (q as QMCQ).choices[a] ?? "";
+        return normStr(picked) === normStr(q.answerText);
+      }
+      return false;
+    }
+
+    if (q.type === "tf") {
+      if (a == null) return false;
+      return Boolean(a) === q.answerBool;
+    }
+
+    if (q.type === "fill") {
+      const t = normStr(String(a ?? ""));
+      if (!t) return false;
+      return q.acceptable.some((acc) => normStr(acc) === t);
+    }
+
+    // match
+    const arr = Array.isArray(a) ? a : [];
+    if (arr.length !== q.left.length) return false;
+    for (let i = 0; i < q.left.length; i++) {
+      const ri = arr[i];
+      if (ri == null) return false;
+      if (ri !== q.answerMap[i]) return false;
+    }
+    return true;
+  }
+
+  function formatYourAnswer(q: Question, a: any): string {
+    if (q.type === "mcq") {
+      if (a == null) return "—";
+      const letter = "ABCD"[a] ?? "?";
+      const text = (q.choices[a] ?? "").toString();
+      return `${letter}. ${stripBBCode(text)}`;
+    }
+    if (q.type === "tf") {
+      return a == null ? "—" : a ? "True" : "False";
+    }
+    if (q.type === "fill") {
+      const t = String(a ?? "").trim();
+      return t || "—";
+    }
+    // match
+    const arr = Array.isArray(a) ? a : [];
+    return q.left
+      .map((L, li) => {
+        const ri = arr[li];
+        const R = ri != null ? q.right[ri] : "—";
+        return `${stripBBCode(L)} → ${stripBBCode(R)}`;
+      })
+      .join(" | ");
+  }
+
+  function formatCorrectAnswer(q: Question): string {
+    if (q.type === "mcq") {
+      if (q.answerLetter) {
+        const i = "ABCD".indexOf(q.answerLetter);
+        const text = q.choices[i] ?? "";
+        return `${q.answerLetter}. ${stripBBCode(text)}`;
+      }
+      if (q.answerText) return stripBBCode(q.answerText);
+      return "";
+    }
+    if (q.type === "tf") {
+      return q.answerBool ? "True" : "False";
+    }
+    if (q.type === "fill") {
+      return q.acceptable.join(" | ");
+    }
+    // match
+    return q.left
+      .map((L, li) => `${stripBBCode(L)} → ${stripBBCode(q.right[q.answerMap[li]])}`)
+      .join(" | ");
+  }
+
+  /* =========================================================
+     Render
+  ========================================================= */
   if (loading) return <div className="p-6">Loading…</div>;
 
   if (!questions.length) {
@@ -509,12 +530,14 @@ try {
       <div className="p-6 space-y-3">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
-          <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
+          <Link to="/packs" className="text-sm underline">
+            ← Back to Packs
+          </Link>
         </div>
         <p>No questions.</p>
-        {SHOW_DEBUG && (apiUrl || debug) && ( 
+        {SHOW_DEBUG && (apiUrl || debug) && (
           <div className="text-xs text-gray-500 break-all">
-            <span className="font-medium">source:</span> {apiUrl ?? "N/A"} 
+            <span className="font-medium">source:</span> {apiUrl ?? "N/A"}
             {debug ? <> · debug: {debug}</> : null}
           </div>
         )}
@@ -526,7 +549,7 @@ try {
     const percent = total ? Math.round((score / total) * 100) : 0;
     return (
       <div className="p-6 max-w-3xl mx-auto space-y-5">
-        {/* 簡易彩紙（emoji） */}
+        {/* 彩紙 */}
         <div className="relative h-10">
           <AnimatePresence>
             {Array.from({ length: 12 }).map((_, i) => (
@@ -550,7 +573,9 @@ try {
 
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-semibold">Result</h1>
-          <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
+          <Link to="/packs" className="text-sm underline">
+            ← Back to Packs
+          </Link>
         </div>
 
         {(apiUrl || debug) && (
@@ -577,57 +602,16 @@ try {
                 <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
 
                 <div className="text-sm">
-                  你的答案：{" "}
-                  {(() => {
-                    const a = answers[i];
-                    switch (q.type) {
-                      case "mcq":
-                        return a != null ? (
-                          <>
-                            {["A", "B", "C", "D"][a as number]}. {renderContent(q.choices[a as number])}
-                          </>
-                        ) : (<em>—</em>);
-                      case "tf":
-                        return a == null ? <em>—</em> : a ? "True" : "False";
-                      case "fill":
-                        return String(a ?? "").trim() ? renderContent(String(a)) : <em>—</em>;
-                      case "match":
-                        return (
-                          <ul className="mt-1 list-disc pl-5">
-                            {(q as QMatch).left.map((L, li) => {
-                              const ri = (a as Array<number | null>)[li];
-                              const R = ri != null ? (q as QMatch).right[ri] : "—";
-                              return <li key={li}>{renderContent(L)} {" → "} {renderContent(R)}</li>;
-                            })}
-                          </ul>
-                        );
-                    }
-                  })()}
+                  你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}
                 </div>
 
                 {!ok && (
                   <div className="mt-2 text-sm">
-                    正確答案：{" "}
-                    {q.type === "mcq" &&
-                      ((q as QMCQ).answerLetter
-                        ? <>{(q as QMCQ).answerLetter}. {renderContent(q.choices["ABCD".indexOf((q as QMCQ).answerLetter!)])}</>
-                        : renderContent(q.choices.find((c) => normStr(c) === normStr((q as any).answerText)) ?? "")
-                      )}
-                    {q.type === "tf" && ((q as QTF).answerBool ? "True" : "False")}
-                    {q.type === "fill" && (q as QFill).acceptable.join(" | ")}
-                    {q.type === "match" && (
-                      <ul className="mt-1 list-disc pl-5">
-                        {(q as QMatch).left.map((L, li) => {
-                          const ri = (q as QMatch).answerMap[li];
-                          const R = (q as QMatch).right[ri];
-                          return <li key={li}>{renderContent(L)} {" → "} {renderContent(R)}</li>;
-                        })}
-                      </ul>
-                    )}
+                    正確答案： {formatCorrectAnswer(q)}
                   </div>
                 )}
 
-                {q.explain ? (
+                {"explain" in q && q.explain ? (
                   <div className="mt-2 text-sm text-gray-600">解釋：{renderContent(q.explain)}</div>
                 ) : null}
               </div>
@@ -636,11 +620,15 @@ try {
         </div>
 
         <div className="flex gap-2">
-          <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">Restart</button>
+          <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">
+            Restart
+          </button>
           <button onClick={sendReportEmail} className="rounded border px-3 py-2">
             寄送報告 ✉️
-          </button> 
-          <Link to="/packs" className="rounded border px-3 py-2">← Back to Packs</Link>
+          </button>
+          <Link to="/packs" className="rounded border px-3 py-2">
+            ← Back to Packs
+          </Link>
         </div>
       </div>
     );
@@ -650,30 +638,32 @@ try {
   const q = questions[idx]!;
   const a = answers[idx];
 
-   return (
-     <div className="p-6 max-w-3xl mx-auto space-y-6">
-       <div className="flex items-center justify-between">
-         <div>
-           <h1 className="text-2xl font-semibold">
-             {packTitle ? `Quiz：${packTitle}` : `Quiz: ${slug}`}
-           </h1>
+  return (
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">
+            {packTitle ? `Quiz：${packTitle}` : `Quiz: ${slug}`}
+          </h1>
 
-           {/* 只在開發模式顯示 */}
-           {SHOW_DEBUG && (apiUrl || debug) && (
-             <div className="text-xs text-gray-500 break-all">
-               <span className="font-medium">source:</span> {apiUrl ?? "N/A"}              
-             </div>
-           )}
-         </div>
-      
-        <Link to="/packs" className="text-sm underline">← Back to Packs</Link>
+          {SHOW_DEBUG && (apiUrl || debug) && (
+            <div className="text-xs text-gray-500 break-all">
+              <span className="font-medium">source:</span> {apiUrl ?? "N/A"}
+              {debug ? <> · debug: {debug}</> : null}
+            </div>
+          )}
+        </div>
+
+        <Link to="/packs" className="text-sm underline">
+          ← Back to Packs
+        </Link>
       </div>
 
       {/* 進度條 + 分數徽章 */}
       <div className="flex items-center justify-between">
         {/* 進度條 */}
-        <div className="flex-1 mr-3">
-          <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
+        <div className="mr-3 flex-1">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
             <motion.div
               className="h-2 bg-black"
               initial={{ width: 0 }}
@@ -694,7 +684,7 @@ try {
           transition={{ type: "spring", stiffness: 200, damping: 12 }}
           className="relative select-none"
         >
-          <div className="rounded-full px-3 py-1 text-sm font-semibold border bg-white shadow-sm">
+          <div className="rounded-full border bg-white px-3 py-1 text-sm font-semibold shadow-sm">
             分數：{score} / {questions.length}
           </div>
           <AnimatePresence>
@@ -704,7 +694,7 @@ try {
                 animate={{ y: -16, opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, y: -28 }}
                 transition={{ duration: 0.6 }}
-                className="absolute -right-3 -top-3 text-emerald-600 font-bold"
+                className="absolute -right-3 -top-3 font-bold text-emerald-600"
               >
                 +1
               </motion.div>
@@ -721,26 +711,24 @@ try {
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
-              const picked = a != null;         // 是否已選過本題
+              const picked = a != null; // 是否已選過本題
               const active = a === i;
               return (
                 <motion.button
                   key={i}
                   onClick={() => pickMCQ(i)}
-                  disabled={picked && !active}   // ✅ 已選後，其他選項禁用 
+                  disabled={picked && !active} // 已選後，其他選項禁用
                   whileTap={{ scale: 0.98 }}
                   whileHover={{ scale: picked ? 1 : 1.01 }}
                   className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${
                     active ? "border-black ring-1 ring-black" : ""
-                  } ${picked && !active ? "opacity-50 pointer-events-none" : ""}`}
+                  } ${picked && !active ? "pointer-events-none opacity-50" : ""}`}
                 >
                   <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-semibold">
                     {"ABCD"[i]}
                   </span>
-                  <span className="flex-1 whitespace-normal break-words"> 
-                  {renderContent(text)}
-                  </span>   
-                 </motion.button>
+                  <span className="flex-1 break-words whitespace-normal">{renderContent(text)}</span>
+                </motion.button>
               );
             })}
           </div>
@@ -751,23 +739,23 @@ try {
           <div className="flex gap-2">
             <motion.button
               whileTap={{ scale: 0.98 }}
-              whileHover={{ scale: a === true ? 1 : 1.01 }} 
+              whileHover={{ scale: a === true ? 1 : 1.01 }}
               onClick={() => pickTF(true)}
-              disabled={a !== null && a !== undefined && a !== true}  // ✅ 已選另一邊就禁用 
+              disabled={a !== null && a !== undefined && a !== true}
               className={`rounded border px-3 py-2 ${
                 a === true ? "border-black ring-1 ring-black" : "hover:bg-gray-50"
-              } ${a !== null && a !== undefined && a !== true ? "opacity-50 pointer-events-none" : ""}`}
+              } ${a !== null && a !== undefined && a !== true ? "pointer-events-none opacity-50" : ""}`}
             >
               True
             </motion.button>
             <motion.button
               whileTap={{ scale: 0.98 }}
-              whileHover={{ scale: a === false ? 1 : 1.01 }} 
+              whileHover={{ scale: a === false ? 1 : 1.01 }}
               onClick={() => pickTF(false)}
-              disabled={a !== null && a !== undefined && a !== false} 
+              disabled={a !== null && a !== undefined && a !== false}
               className={`rounded border px-3 py-2 ${
                 a === false ? "border-black ring-1 ring-black" : "hover:bg-gray-50"
-              } ${a !== null && a !== undefined && a !== false ? "opacity-50 pointer-events-none" : ""}`}
+              } ${a !== null && a !== undefined && a !== false ? "pointer-events-none opacity-50" : ""}`}
             >
               False
             </motion.button>
@@ -778,7 +766,7 @@ try {
         {q.type === "fill" && (
           <div className="flex gap-2">
             <input
-              value={typeof a === "string" ? a : ""} 
+              value={typeof a === "string" ? a : ""}
               onChange={(e) => fillText(e.target.value)}
               placeholder="你的答案…"
               className="w-full rounded border px-3 py-2"
@@ -791,7 +779,9 @@ try {
           <div className="grid gap-3">
             {(q as QMatch).left.map((L, li) => {
               const chosen = (a as Array<number | null>)[li];
-              const used = new Set((a as Array<number | null>).filter((x, j) => j !== li && x != null) as number[]);
+              const used = new Set(
+                (a as Array<number | null>).filter((x, j) => j !== li && x != null) as number[]
+              );
               return (
                 <div key={li} className="flex items-center gap-3">
                   <div className="flex-1 rounded border p-2">{renderContent(L)}</div>
@@ -816,11 +806,7 @@ try {
       </div>
 
       <div className="flex items-center justify-between">
-        <button
-          onClick={prevQ}
-          disabled={idx === 0}
-          className="rounded border px-3 py-2 disabled:opacity-50"
-        >
+        <button onClick={prevQ} disabled={idx === 0} className="rounded border px-3 py-2 disabled:opacity-50">
           ← Prev
         </button>
 
@@ -834,10 +820,7 @@ try {
             : "已選擇"}
         </div>
 
-        <button
-          onClick={nextQ}
-          className="rounded bg-black px-3 py-2 text-white"
-        >
+        <button onClick={nextQ} className="rounded bg-black px-3 py-2 text-white">
           {idx < questions.length - 1 ? "Next →" : "Finish ✅"}
         </button>
       </div>
