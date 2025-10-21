@@ -7,5 +7,5 @@ python-multipart
 email-validator
 pydantic
 stripe==10.11.0
-psycopg[binary]==3.2.1
+psycopg[binary]>=3.2.2,<3.3
 python-dotenv==1.0.1
