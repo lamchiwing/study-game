@@ -1,55 +1,68 @@
 # apps/backend/app/main.py
-import os, io, csv, random, re
-from typing import Optional, List, Dict, Any
+import os, io, csv, random, re, html
+from typing import Optional, List, Dict, Any, Tuple
 
-from fastapi import Header, FastAPI, UploadFile, File, Query, HTTPException
+from fastapi import Header, FastAPI, UploadFile, File, Query, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from .entitlements import has_access, get_user_profile  # 你專案已內建
+
+from .entitlements import has_access, get_user_profile
 from .mailer_sendgrid import send_report_email
 
 import boto3
 from botocore.config import Config
-from pydantic import BaseModel, EmailStr
-from app.mailer_sendgrid import send_report_email  # 僅保留這一行
+from pydantic import BaseModel
 
-
+# -------------------------------
+# Feature flags & regex
+# -------------------------------
 REPORT_PAID_ONLY = os.getenv("REPORT_PAID_ONLY", "1") == "1"
 EMAIL_RX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
-# 如果你的 Pydantic model 還是強制 to_email，改成可選
+# -------------------------------
+# Models
+# -------------------------------
 class ReportPayload(BaseModel):
-    to_email: Optional[str] = None          # ← 由必填改成可選
+    # to_email 可選：若未提供，會從使用者 profile 取 parent_email
+    to_email: Optional[str] = None
     student_name: Optional[str] = None
     grade: Optional[str] = None
     score: int
     total: int
     duration_min: Optional[int] = None
     summary: Optional[str] = None
-    detail_rows: Optional[list[dict]] = None
+    # {q, yourAns, correct}
+    detail_rows: Optional[List[Dict[str, Any]]] = None
 
-def _parse_subject_grade(slug: str) -> tuple[str, int]:
+# -------------------------------
+# Utils
+# -------------------------------
+def _parse_subject_grade(slug: str) -> Tuple[str, int]:
     """
     "math/grade1/20m" -> ("math", 1)
     "math/Grade02/setA" -> ("math", 2)
-    "chinese/g1/pack" -> ("chinese", 1)  # 若你將來改寫成 g1 也能支援
+    "chinese/g1/pack" -> ("chinese", 1)
     """
-    # e.g. "math/grade1/20m" -> ("math", 1)
     slug = (slug or "").strip().lower()
-    parts = slug.split("/") if slug else []
-    subject = parts[0] if parts else ""
-
-     # 抓 grade 數字（gradeXX 或 gXX 都接受）
+    subject = ""
+    if slug:
+        parts = slug.split("/")
+        subject = parts[0] if parts else ""
     m = re.search(r"(?:grade|g)\s*(\d+)", slug)
     grade = int(m.group(1)) if m else 0
     return subject, grade
 
+def need(name: str) -> str:
+    v = os.getenv(name)
+    if not v:
+        raise RuntimeError(f"Missing environment variable: {name}")
+    return v
 
-
-# ----- 先建立 app，再宣告任何路由 -----
+# -------------------------------
+# App & CORS
+# -------------------------------
 app = FastAPI()
 
-# ---------- CORS ----------
 allowlist = ["https://study-game-front.onrender.com", "http://localhost:5173"]
 if os.getenv("FRONTEND_ORIGIN"):
     allowlist.append(os.getenv("FRONTEND_ORIGIN"))
@@ -63,26 +76,9 @@ app.add_middleware(
     max_age=86400,
 )
 
-# --- 測試寄信路由（GET）---
-@app.get("/__test_mail")
-def __test_mail(to: EmailStr):
-    ok, err = send_report_email(
-        to=str(to),  # 修正參數名稱：to=，不是 to_email=
-        subject="[Study Game] 測試信件",
-        html="<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定OK。</p>"
-    )
-    return {"ok": ok, "error": err}
-
-# 其後保持你的既有程式（need(...)、S3 客戶端、/packs、/quiz、/report/send 等）
-
-
-# ---------- env & S3/R2 ----------
-def need(name: str) -> str:
-    v = os.getenv(name)
-    if not v:
-        raise RuntimeError(f"Missing environment variable: {name}")
-    return v
-
+# -------------------------------
+# S3 / R2
+# -------------------------------
 S3_BUCKET = need("S3_BUCKET")
 S3_ACCESS_KEY = need("S3_ACCESS_KEY")
 S3_SECRET_KEY = need("S3_SECRET_KEY")
@@ -97,8 +93,8 @@ s3 = boto3.client(
 )
 
 PREFIX = "packs/"
-
 _slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
+
 def validate_slug(slug: str) -> str:
     """Only allow simple path fragments like 'math/p1/add-10'."""
     slug = (slug or "").strip().strip("/")
@@ -109,7 +105,6 @@ def validate_slug(slug: str) -> str:
 def slug_to_key(slug: str) -> str:
     return f"{PREFIX}{slug}.csv"
 
-# ---------- helpers ----------
 def smart_decode(b: bytes) -> str:
     for enc in ("utf-8-sig", "utf-8", "cp950", "big5", "gb18030"):
         try:
@@ -118,12 +113,31 @@ def smart_decode(b: bytes) -> str:
             continue
     return b.decode("utf-8", errors="replace")
 
-# ---------- health ----------
+# -------------------------------
+# Health
+# -------------------------------
 @app.get("/", response_class=PlainTextResponse)
 def root():
     return "study-game-back OK"
 
-# ---------- upload CSV ----------
+# -------------------------------
+# Test mail
+# -------------------------------
+@app.get("/__test_mail")
+def __test_mail(to: str):
+    to = (to or "").strip()
+    if not to or not EMAIL_RX.match(to):
+        raise HTTPException(400, detail="Invalid email")
+    ok, err = send_report_email(
+        to_email=to,
+        subject="[Study Game] 測試信件",
+        html="<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定 OK。</p>",
+    )
+    return {"ok": ok, "error": err}
+
+# -------------------------------
+# Upload CSV
+# -------------------------------
 @app.post("/upload")
 @app.post("/api/upload")
 async def upload_csv(slug: str, file: UploadFile = File(...)):
@@ -140,7 +154,9 @@ async def upload_csv(slug: str, file: UploadFile = File(...)):
 
     return {"ok": True, "slug": slug, "key": key, "size": len(content)}
 
-# ---------- list packs (with pagination) ----------
+# -------------------------------
+# List packs
+# -------------------------------
 @app.get("/packs")
 @app.get("/api/packs")
 def list_packs():
@@ -155,7 +171,8 @@ def list_packs():
                 continue
             slug = key[len(PREFIX):-4]  # drop 'packs/' and '.csv'
             parts = slug.split("/")
-            title = parts[-1].replace("-", " ").title()
+            # 預設用 slug 末段產生英文 Title（前端已有 fallback 可顯示中文）
+            title = parts[-1].replace("-", " ").title() if parts else slug
             subject = parts[0] if len(parts) > 0 else ""
             grade = parts[1] if len(parts) > 1 else ""
             items.append({"slug": slug, "title": title, "subject": subject, "grade": grade})
@@ -165,9 +182,12 @@ def list_packs():
         else:
             break
 
+    # 也可改回 {"packs": items}；前端已兼容兩種
     return items
 
-# ---------- get quiz ----------
+# -------------------------------
+# Get quiz
+# -------------------------------
 @app.get("/quiz")
 @app.get("/api/quiz")
 def get_quiz(
@@ -179,19 +199,19 @@ def get_quiz(
 ):
     """
     回傳：
-      {"list":[...], "usedUrl":"s3://bucket/key.csv", "debug":"rows=.., picked=.., seed=.."}
+      {"title": "...", "list":[...], "usedUrl":"s3://bucket/key.csv", "debug":"rows=.., picked=.., seed=.."}
     """
     try:
         slug = validate_slug(slug)
     except HTTPException:
-        return JSONResponse({"list": []}, media_type="application/json; charset=utf-8")
+        return JSONResponse({"title": "", "list": []}, media_type="application/json; charset=utf-8")
 
     key = slug_to_key(slug)
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     except Exception:
         return JSONResponse(
-            {"list": [], "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": "s3 get_object failed"},
+            {"title": "", "list": [], "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": "s3 get_object failed"},
             media_type="application/json; charset=utf-8",
         )
 
@@ -199,13 +219,15 @@ def get_quiz(
     text = smart_decode(raw)
     rows = list(csv.DictReader(io.StringIO(text)))
 
+    # 取整包標題（若 CSV 有 title/標題 欄）
     pack_title = ""
     for r in rows:
-    t = (r.get("title") or r.get("標題") or "").strip()
-    if t:
-        pack_title = t
-        break
+        t = (r.get("title") or r.get("標題") or "").strip()
+        if t:
+            pack_title = t
+            break
 
+    # 組題目
     qs: List[Dict[str, Any]] = []
     for i, r in enumerate(rows, start=1):
         qs.append({
@@ -250,24 +272,14 @@ def get_quiz(
         media_type="application/json; charset=utf-8",
     )
 
-# ---------- email report ----------
-from .mailer_sendgrid import send_report_email  # keep local helper
-
-class ReportPayload(BaseModel):
-    to_email: EmailStr
-    student_name: str
-    grade: Optional[str] = None
-    score: int
-    total: int
-    duration_min: Optional[int] = None
-    summary: Optional[str] = None
-    detail_rows: Optional[List[Dict[str, Any]]] = None  # {q, yourAns, correct}
-
+# -------------------------------
+# Email report
+# -------------------------------
 @app.post("/report/send")
 def send_report(
     payload: ReportPayload,
-    slug: str | None = Query(default=None),                  # 前端帶目前題包 slug
-    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+    slug: Optional[str] = Query(default=None),   # 前端帶目前題包 slug
+    x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
 ):
     # 1) 付費/授權檢查（需購買才可寄）
     if REPORT_PAID_ONLY:
@@ -275,9 +287,8 @@ def send_report(
         if not has_access(x_user_id, subject_code, grade_num):
             raise HTTPException(status_code=402, detail="報告功能需購買方案")
 
-    # 2) 從使用者資料查家長電郵/學生資料（payload 只作覆蓋）
+    # 2) 從使用者資料查家長電郵/學生資料（payload 可覆蓋）
     profile = get_user_profile(x_user_id) if x_user_id else None  # 例如 {"parent_email": "...", "student_name": "...", "grade": "P1"}
-
     to_email = (payload.to_email or (profile or {}).get("parent_email") or "").strip()
     if not to_email or not EMAIL_RX.match(to_email):
         raise HTTPException(status_code=400, detail="找不到家長電郵，請先在帳戶設定綁定")
@@ -290,7 +301,7 @@ def send_report(
     subject_line = f"{student_name or '學生'} 今日練習報告：{sc}/{tt}"
 
     # 3) 安全轉義（避免把前端 HTML 直接塞進信件）
-    def esc(s: str | None) -> str:
+    def esc(s: Optional[str]) -> str:
         return html.escape(str(s or ""), quote=True)
 
     # 4) 明細表（最多 50 筆）
@@ -301,9 +312,9 @@ def send_report(
             "<tr><th align='left'>題目</th><th align='left'>你的答案</th><th align='left'>正確答案</th></tr>",
         ]
         for r in (payload.detail_rows or [])[:50]:
-            q = esc(r.get("q"))
-            a = esc(r.get("yourAns"))
-            c = esc(r.get("correct"))
+            q = esc(r.get("q")) if isinstance(r, dict) else ""
+            a = esc(r.get("yourAns")) if isinstance(r, dict) else ""
+            c = esc(r.get("correct")) if isinstance(r, dict) else ""
             parts.append(
                 "<tr>"
                 f"<td style='border-top:1px solid #eee;padding:6px 4px'>{q}</td>"
@@ -335,7 +346,7 @@ def send_report(
     """.strip()
 
     # 7) 寄送
-    ok, err = send_report_email(to_email, subject_line, html_body)
+    ok, err = send_report_email(to_email=to_email, subject=subject_line, html=html_body)
     if not ok:
         raise HTTPException(status_code=502, detail=f"寄送失敗：{err}")
     return {"ok": True}
