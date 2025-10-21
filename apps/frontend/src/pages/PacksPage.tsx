@@ -2,13 +2,19 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
-type Pack = { slug: string; title?: string; subject?: string; grade?: string };
+type Pack = {
+  slug: string;
+  title?: string;
+  subject?: string;
+  grade?: string;
+  isPaid?: boolean;
+};
 
 // --- 工具：規整 BASE 並去掉重複貼上 ---
 function normBase(s: string | undefined) {
   let b = (s ?? "").trim();
   b = b.replace(/^['"]|['"]$/g, ""); // 去掉手滑加的引號
-  b = b.replace(/\/+$/, "");         // 去掉所有尾斜線
+  b = b.replace(/\/+$/, ""); // 去掉所有尾斜線
   // 若變成 https://x/https://x → 只保留第一段
   const m = b.match(/^(https?:\/\/[^/]+)(?:\/https?:\/\/[^/]+)?$/);
   return m ? m[1] : b;
@@ -31,7 +37,6 @@ async function fetchFirstOk<T = any>(paths: string[]): Promise<T> {
   }
   throw new Error(`All candidates failed/404:\n${paths.join("\n")}`);
 }
-
 
 // ✅ 解法 1：放在檔案頂部（component 外面，避免每次 render 重新建立）
 const TITLE_FALLBACK: Record<string, string> = {
@@ -69,11 +74,11 @@ export default function PacksPage() {
   if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
   if (!packs.length) return <div className="p-8">No packs found.</div>;
 
-    return (
+  return (
     <div className="p-8">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Packs</h1>
-        {/* ✅ 付費導引入口 #1 */}
+        {/* 付費導引入口 #1 */}
         <Link
           to="/pricing"
           className="rounded-xl border px-3 py-1.5 text-sm hover:bg-gray-50"
@@ -84,29 +89,39 @@ export default function PacksPage() {
 
       <ul className="space-y-2">
         {packs.map((p) => (
-          <li key={p.slug} className="flex items-center justify-between rounded-lg border p-3 hover:bg-gray-50">
-  <div>
-    <Link
-      to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
-      className="underline"
-    >
-      {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
-    </Link>
-    <div className="text-sm text-gray-500">
-      {[p.subject, p.grade].filter(Boolean).join(" · ")}
-    </div>
-  </div>
+          <li
+            key={p.slug}
+            className="flex items-center justify-between rounded-lg border p-3 hover:bg-gray-50"
+          >
+            <div>
+              <Link
+                to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
+                className="underline"
+              >
+                {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
+              </Link>
+              <div className="text-sm text-gray-500">
+                {[p.subject, p.grade].filter(Boolean).join(" · ")}
+              </div>
+            </div>
 
-  {/* 如果有 isPaid，就顯示 badge；沒有就先拿掉這塊 */}
-  {typeof p.isPaid === "boolean" && (
-    <span
-      className={
-        "ml-3 rounded-full px-3 py-1 text-xs " +
-        (p.isPaid ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")
-      }
-      title={p.isPaid ? "此題包包含付費功能" : "免費題包"}
-    >
-      {p.isPaid ? "付費" : "免費"}
-    </span>
-  )}
-</li>
+            {/* 如果有 isPaid，就顯示 badge；沒有就不顯示 */}
+            {typeof p.isPaid === "boolean" && (
+              <span
+                className={
+                  "ml-3 rounded-full px-3 py-1 text-xs " +
+                  (p.isPaid
+                    ? "bg-amber-100 text-amber-700"
+                    : "bg-emerald-100 text-emerald-700")
+                }
+                title={p.isPaid ? "此題包包含付費功能" : "免費題包"}
+              >
+                {p.isPaid ? "付費" : "免費"}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
