@@ -277,8 +277,9 @@ export default function QuizPage() {
     async function run() {
       setLoading(true);
       try {
-        const url = `/api/quiz?slug=${encodeURIComponent(slug)}`;
-        const r = await fetch(url);
+        const url = `${API_BASE}/api/quiz?slug=${encodeURIComponent(slug)}`;
+        const r = await fetch(url, { credentials: "omit" });
+
         const ret = (await r.json()) as ApiQuizResponse;
 
         setApiUrl(ret?.usedUrl || null);
