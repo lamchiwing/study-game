@@ -137,12 +137,28 @@ def __test_mail(to: str):
     to = (to or "").strip()
     if not to or not EMAIL_RX.match(to):
         raise HTTPException(400, detail="Invalid email")
-    ok, err = send_report_email(
-        to_email=to,
-        subject="[Study Game] 測試信件",
-        html="<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定 OK。</p>",
-    )
-    return {"ok": ok, "error": err}
+
+    # 檢查環境變數（避免 500）
+    missing = [k for k in ("SENDGRID_API_KEY", "SENDGRID_FROM") if not os.getenv(k)]
+    if missing:
+        raise HTTPException(500, detail=f"Missing env: {', '.join(missing)}")
+
+    # 兼容不同函式簽名
+    try:
+        ok, err = send_report_email(to_email=to,
+                                    subject="[Study Game] 測試信件",
+                                    html="<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定OK。</p>")
+    except TypeError:
+        # 舊簽名：send_report_email(to, subject, html)
+        ok, err = send_report_email(to,
+                                    "[Study Game] 測試信件",
+                                    "<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定OK。</p>")
+
+    if not ok:
+        # 把錯誤回給前端，方便排查
+        raise HTTPException(502, detail=str(err))
+    return {"ok": True}
+
 
 # -------------------------------
 # Upload CSV
