@@ -159,7 +159,6 @@ def __test_mail(to: str):
         raise HTTPException(502, detail=str(err))
     return {"ok": True}
 
-
 # -------------------------------
 # Upload CSV
 # -------------------------------
