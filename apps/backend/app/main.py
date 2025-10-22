@@ -100,9 +100,15 @@ def __test_mail(to: str):
     to = (to or "").strip()
     if not to or not EMAIL_RX.match(to):
         raise HTTPException(400, detail="Invalid email")
-    missing = [k for k in ("SENDGRID_API_KEY", "SENDGRID_FROM") if not os.getenv(k)]
-    if missing:
+
+    # ✅ 同時接受 SENDGRID_FROM 或 EMAIL_FROM 其中之一
+    has_from = os.getenv("SENDGRID_FROM") or os.getenv("EMAIL_FROM")
+    if not os.getenv("SENDGRID_API_KEY") or not has_from:
+        missing = []
+        if not os.getenv("SENDGRID_API_KEY"): missing.append("SENDGRID_API_KEY")
+        if not has_from: missing.append("SENDGRID_FROM or EMAIL_FROM")
         raise HTTPException(500, detail=f"Missing env: {', '.join(missing)}")
+
     try:
         ok, err = send_report_email(
             to_email=to,
@@ -115,9 +121,11 @@ def __test_mail(to: str):
             "[Study Game] 測試信件",
             "<p>這是一封測試信件，如果你收到了，代表 SendGrid 設定OK。</p>",
         )
+
     if not ok:
         raise HTTPException(502, detail=str(err))
     return {"ok": True}
+
 
 @app.post("/upload")
 @app.post("/api/upload")
