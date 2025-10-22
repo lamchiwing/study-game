@@ -102,12 +102,10 @@ s3 = boto3.client(
 )
 
 PREFIX = "packs/"
-# 允許中日韓統一表意文字（基本區），加上原本的 ASCII
-_slug_re = re.compile(r"^[\u4e00-\u9fffA-Za-z0-9/_-]+$")
-
+# 回到原本的（只允許 ASCII；大小寫不敏感）
+_slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
 
 def validate_slug(slug: str) -> str:
-    """Only allow simple path fragments like 'math/p1/add-10'."""
     slug = (slug or "").strip().strip("/")
     if not slug or ".." in slug or not _slug_re.fullmatch(slug):
         raise HTTPException(status_code=400, detail="invalid slug")
