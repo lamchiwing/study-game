@@ -3,6 +3,9 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/,'')
+  || "https://study-game-back.onrender.com";
+
 
 
 /* =========================================================
