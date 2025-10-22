@@ -107,58 +107,42 @@ function normStr(x: string): string {
 }
 
 // 從 API row 轉為我們內部 Question 結構
+// 🔄 替換整個 mapRowToQuestion 與 parseList（放在同一位置，兩個函式緊接著）
 function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
   const t = (r.type || "").toLowerCase();
   const stem = r.question || "";
 
-  if (t === "mcq") { /* 原樣 */ }
-  if (t === "tf")  { /* 原樣 */ }
-  if (t === "fill"){ /* 原樣 */ }
+  // --- MCQ ---
+  if (t === "mcq") {
+    const choices = [r.choiceA ?? "", r.choiceB ?? "", r.choiceC ?? "", r.choiceD ?? ""];
+    let answerLetter: "A" | "B" | "C" | "D" | undefined;
+    let answerText: string | undefined;
 
-  // ✅ match：同時支援 pairs 或 left/right
-  let left = parseList(r.left);
-  let right = parseList(r.right);
-
-  // ← 如果 CSV 只給了 pairs（JSON），這裡把它拆成 left/right
-  if ((!left.length || !right.length) && r.pairs) {
-    try {
-      const arr = JSON.parse(r.pairs); // 期望 [{left:"..", right:".."}, ...]
-      if (Array.isArray(arr)) {
-        left = arr.map(x => String(x.left ?? "")).filter(Boolean);
-        right = arr.map(x => String(x.right ?? "")).filter(Boolean);
-      }
-    } catch {}
-  }
-
-  let answerMap: number[] = [];
-  if (r.answerMap) {
-    if (r.answerMap.trim().startsWith("[")) {
-      try { answerMap = JSON.parse(r.answerMap); } catch {}
-    } else {
-      answerMap = r.answerMap.split(",").map(x => Number(x.trim())).filter(n => !Number.isNaN(n));
+    if (r.answer && /^[ABCD]$/i.test(r.answer)) {
+      answerLetter = r.answer.toUpperCase() as any;
+    } else if (r.answer) {
+      answerText = r.answer;
     }
+
+    return {
+      id: r.id || String(idx + 1),
+      type: "mcq",
+      stem,
+      choices,
+      answerLetter,
+      answerText,
+      explain: r.explain,
+      image: r.image,
+    };
   }
-  // 預設 identity 對應
-  const n = Math.min(left.length, right.length);
-  if (!answerMap.length) answerMap = Array.from({ length: n }, (_, i) => i);
 
-  return {
-    id: r.id || String(idx + 1),
-    type: "match",
-    stem,
-    left: left.slice(0, n),
-    right: right.slice(0, n),
-    answerMap: answerMap.slice(0, n),
-    explain: r.explain,
-    image: r.image,
-  };
-}
-
+  // --- True/False ---
   if (t === "tf") {
     const bool =
       typeof r.answer === "string"
         ? ["true", "t", "1", "yes", "y"].includes(r.answer.toLowerCase())
         : false;
+
     return {
       id: r.id || String(idx + 1),
       type: "tf",
@@ -169,8 +153,8 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
     };
   }
 
+  // --- Fill in the blank ---
   if (t === "fill") {
-    // answers 可能以 | 分隔，或 JSON
     let acc: string[] = [];
     if (r.answers && r.answers.trim().startsWith("[")) {
       try {
@@ -183,6 +167,7 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
     } else if (r.answer) {
       acc = [r.answer];
     }
+
     return {
       id: r.id || String(idx + 1),
       type: "fill",
@@ -193,33 +178,45 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
     };
   }
 
-  // match
-  // left/right/answerMap 可能是逗號分隔或 JSON
-  const left = parseList(r.left);
-  const right = parseList(r.right);
-  let answerMap: number[] = [];
+  // --- Match (支援 pairs 或 left/right) ---
+  let left = parseList(r.left);
+  let right = parseList(r.right);
 
+  if ((!left.length || !right.length) && r.pairs) {
+    try {
+      const arr = JSON.parse(r.pairs); // 期待 [{left:"..", right:".."}, ...]
+      if (Array.isArray(arr)) {
+        left = arr.map((x: any) => String(x?.left ?? "")).filter(Boolean);
+        right = arr.map((x: any) => String(x?.right ?? "")).filter(Boolean);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  let answerMap: number[] = [];
   if (r.answerMap) {
-    if (r.answerMap.trim().startsWith("[")) {
+    const s = r.answerMap.trim();
+    if (s.startsWith("[")) {
       try {
-        answerMap = JSON.parse(r.answerMap);
+        answerMap = JSON.parse(s);
       } catch {
         answerMap = [];
       }
     } else {
-      answerMap = r.answerMap
+      answerMap = s
         .split(",")
         .map((x) => x.trim())
         .filter((x) => x !== "")
-        .map((x) => Number(x));
+        .map((x) => Number(x))
+        .filter((n) => Number.isFinite(n));
     }
   }
 
-  // 長度保護
   const n = Math.min(left.length, right.length);
   const L = left.slice(0, n);
   const R = right.slice(0, n);
-  const A = answerMap.length === n ? answerMap : Array.from({ length: n }, (_, i) => i);
+  const A = answerMap.length === n ? answerMap.slice(0, n) : Array.from({ length: n }, (_, i) => i);
 
   return {
     id: r.id || String(idx + 1),
