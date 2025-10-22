@@ -102,7 +102,9 @@ s3 = boto3.client(
 )
 
 PREFIX = "packs/"
-_slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
+# 允許中日韓統一表意文字（基本區），加上原本的 ASCII
+_slug_re = re.compile(r"^[\u4e00-\u9fffA-Za-z0-9/_-]+$")
+
 
 def validate_slug(slug: str) -> str:
     """Only allow simple path fragments like 'math/p1/add-10'."""
