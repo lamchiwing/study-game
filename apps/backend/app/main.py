@@ -178,6 +178,50 @@ async def upload_csv(slug: str, file: UploadFile = File(...)):
 
     return {"ok": True, "slug": slug, "key": key, "size": len(content)}
 
+# main.py (list_packs 之前或檔案頂部)
+
+TITLE_MAP = {
+    "chinese/grade1/mixed-colored-demo": "小一｜中文｜顏色混合示例",
+    "chinese/grade1/mixed-chi3-demofixed": "小一｜中文｜混合題（chi3）",
+    "math/grade1/20l": "小一｜數學｜1–20（容易）",
+    "math/grade1/20m": "小一｜數學｜1–20（中等）",
+    "math/grade1/20h": "小一｜數學｜1–20（困難）",
+}
+
+CUSTOM_ORDER = {
+    "chinese/grade1/mixed-colored-demo": 0,
+    "chinese/grade1/mixed-chi3-demofixed": 1,
+    "math/grade1/20l": 2,
+    "math/grade1/20m": 3,
+    "math/grade1/20h": 4,
+    "math/grade1/l": 5,
+    "math/grade1/m": 6,
+    "math/grade1/h": 7,
+}
+
+SUBJECT_ORDER = {"chinese": 0, "math": 1}
+GRADE_ORDER   = {"grade1": 1, "g1": 1, "grade2": 2, "g2": 2}
+
+def rank(item):
+    slug = item["slug"]
+    parts = slug.split("/")
+    subject = parts[0] if len(parts) > 0 else ""
+    grade = parts[1] if len(parts) > 1 else ""
+    return (
+        CUSTOM_ORDER.get(slug, 9999),
+        SUBJECT_ORDER.get(subject, 999),
+        GRADE_ORDER.get(grade, 999),
+        slug,
+    )
+
+# 在 list_packs() 迴圈 append 完 items 後：
+for it in items:
+    it["title"] = TITLE_MAP.get(it["slug"]) or it["title"]
+
+items.sort(key=rank)
+return items
+
+
 # -------------------------------
 # List packs
 # -------------------------------
