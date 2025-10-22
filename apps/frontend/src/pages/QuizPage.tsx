@@ -111,28 +111,48 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
   const t = (r.type || "").toLowerCase();
   const stem = r.question || "";
 
-  if (t === "mcq") {
-    const choices = [r.choiceA ?? "", r.choiceB ?? "", r.choiceC ?? "", r.choiceD ?? ""];
-    let answerLetter: "A" | "B" | "C" | "D" | undefined = undefined;
-    let answerText: string | undefined = undefined;
+  if (t === "mcq") { /* 原樣 */ }
+  if (t === "tf")  { /* 原樣 */ }
+  if (t === "fill"){ /* 原樣 */ }
 
-    if (r.answer && /^[ABCD]$/i.test(r.answer)) {
-      answerLetter = r.answer.toUpperCase() as any;
-    } else if (r.answer) {
-      // 有些題庫是文字答案
-      answerText = r.answer;
-    }
-    return {
-      id: r.id || String(idx + 1),
-      type: "mcq",
-      stem,
-      choices,
-      answerLetter,
-      answerText,
-      explain: r.explain,
-      image: r.image,
-    };
+  // ✅ match：同時支援 pairs 或 left/right
+  let left = parseList(r.left);
+  let right = parseList(r.right);
+
+  // ← 如果 CSV 只給了 pairs（JSON），這裡把它拆成 left/right
+  if ((!left.length || !right.length) && r.pairs) {
+    try {
+      const arr = JSON.parse(r.pairs); // 期望 [{left:"..", right:".."}, ...]
+      if (Array.isArray(arr)) {
+        left = arr.map(x => String(x.left ?? "")).filter(Boolean);
+        right = arr.map(x => String(x.right ?? "")).filter(Boolean);
+      }
+    } catch {}
   }
+
+  let answerMap: number[] = [];
+  if (r.answerMap) {
+    if (r.answerMap.trim().startsWith("[")) {
+      try { answerMap = JSON.parse(r.answerMap); } catch {}
+    } else {
+      answerMap = r.answerMap.split(",").map(x => Number(x.trim())).filter(n => !Number.isNaN(n));
+    }
+  }
+  // 預設 identity 對應
+  const n = Math.min(left.length, right.length);
+  if (!answerMap.length) answerMap = Array.from({ length: n }, (_, i) => i);
+
+  return {
+    id: r.id || String(idx + 1),
+    type: "match",
+    stem,
+    left: left.slice(0, n),
+    right: right.slice(0, n),
+    answerMap: answerMap.slice(0, n),
+    explain: r.explain,
+    image: r.image,
+  };
+}
 
   if (t === "tf") {
     const bool =
