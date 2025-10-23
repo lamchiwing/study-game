@@ -8,6 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 # app/main.py（片段）
 from .billing_stripe import router as billing_router
 app.include_router(billing_router)
+# apps/backend/app/main.py 片段
+from .routes_report import router as report_router
+app.include_router(report_router)
+
 
 
 # --- entitlements (fallback for get_user_profile) ---
