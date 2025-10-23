@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import PacksPage from "./pages/PacksPage";
 import QuizPage from "./pages/QuizPage";
 import PricingPage from "./pages/PricingPage";
+import CheckoutPage from "./pages/CheckoutPage";
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
 
         {/* 兜底：未知路徑導回 packs */}
         <Route path="*" element={<Navigate to="/packs" replace />} />
+        <Route path="/checkout" element={<CheckoutPage />} />
       </Routes>
     </BrowserRouter>
   );
