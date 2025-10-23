@@ -3,13 +3,13 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/,'')
-  || "https://study-game-back.onrender.com";
-// 原本可能是 import.meta.env.DEV
+
+const API_BASE =
+  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
+  "https://study-game-back.onrender.com";
+
+// 想完全隱藏 source/debug 就設 false
 const SHOW_DEBUG = false;
-
-
-
 
 /* =========================================================
    類型宣告
@@ -17,7 +17,7 @@ const SHOW_DEBUG = false;
 type QMCQ = {
   id?: string;
   type: "mcq";
-  stem: string;                 // 內部統一用 stem 渲染
+  stem: string;
   choices: string[];
   answerLetter?: "A" | "B" | "C" | "D";
   answerText?: string;
@@ -38,7 +38,7 @@ type QFill = {
   id?: string;
   type: "fill";
   stem: string;
-  acceptable: string[];         // 可接受答案（大小寫/空白正規化後比對）
+  acceptable: string[];
   explain?: string;
   image?: string;
 };
@@ -49,7 +49,7 @@ type QMatch = {
   stem: string;
   left: string[];
   right: string[];
-  answerMap: number[];          // left[i] 對應 right[answerMap[i]]
+  answerMap: number[];
   explain?: string;
   image?: string;
 };
@@ -58,20 +58,20 @@ type Question = QMCQ | QTF | QFill | QMatch;
 
 type ApiQuestionRow = {
   id?: string;
-  type?: string;                // "mcq" | "tf" | "fill" | "match"
+  type?: string;
   question?: string;
   choiceA?: string;
   choiceB?: string;
   choiceC?: string;
   choiceD?: string;
-  answer?: string;              // MCQ: "A"/"B"/"C"/"D" 或文字；TF: "true"/"false"；Fill: 文字；Match: 可能是 JSON
-  answers?: string;             // Fill 多答案以 | 分隔；或 JSON
+  answer?: string;
+  answers?: string;
   explain?: string;
   image?: string;
-  pairs?: string;               // JSON 或留空
+  pairs?: string;
   left?: string;
   right?: string;
-  answerMap?: string;           // "0,2,1" / JSON
+  answerMap?: string;
 };
 
 type ApiQuizResponse = {
@@ -82,43 +82,17 @@ type ApiQuizResponse = {
 };
 
 /* =========================================================
-   常數與工具
+   工具
 ========================================================= */
-const SHOW_DEBUG = import.meta.env.DEV ?? false;
-
-// 簡化 BBCode：只處理 [c=name]...[/c] → <span style="color:var(--c-name)">...</span>
-function renderContent(s: string | undefined): React.ReactNode {
-  const t = String(s ?? "");
-  // [c=ai]文字[/c] → <span style="color:var(--c-ai)">文字</span>
-  return (
-    <span
-      dangerouslySetInnerHTML={{
-        __html: t
-          .replace(/\[c=([a-z0-9_-]+)\]/gi, (_m, c) => `<span style="color:var(--c-${c})">`)
-          .replace(/\[\/c\]/gi, "</span>"),
-      }}
-    />
-  );
-}
-
-// 去掉 BBCode（用於 <option> 文字）
-function stripBBCode(s: string): string {
-  return String(s ?? "")
-    .replace(/\[c=[^\]]+\]/gi, "")
-    .replace(/\[\/c\]/gi, "");
-}
-
 function normStr(x: string): string {
   return String(x ?? "").trim().toLowerCase().replace(/\s+/g, "");
 }
 
-// 從 API row 轉為我們內部 Question 結構
-// 🔄 替換整個 mapRowToQuestion 與 parseList（放在同一位置，兩個函式緊接著）
 function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
   const t = (r.type || "").toLowerCase();
   const stem = r.question || "";
 
-  // --- MCQ ---
+  // MCQ
   if (t === "mcq") {
     const choices = [r.choiceA ?? "", r.choiceB ?? "", r.choiceC ?? "", r.choiceD ?? ""];
     let answerLetter: "A" | "B" | "C" | "D" | undefined;
@@ -142,7 +116,7 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
     };
   }
 
-  // --- True/False ---
+  // TF
   if (t === "tf") {
     const bool =
       typeof r.answer === "string"
@@ -159,7 +133,7 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
     };
   }
 
-  // --- Fill in the blank ---
+  // Fill
   if (t === "fill") {
     let acc: string[] = [];
     if (r.answers && r.answers.trim().startsWith("[")) {
@@ -184,7 +158,7 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
     };
   }
 
-  // --- Match (支援 pairs 或 left/right) ---
+  // Match（支援 pairs 或 left/right）
   let left = parseList(r.left);
   let right = parseList(r.right);
 
@@ -272,9 +246,7 @@ export default function QuizPage() {
   // 取得 UserId（示例：從 localStorage）
   const userId = useMemo(() => localStorage.getItem("uid") || "", []);
 
-  /* -----------------------------
-     載入題目
-  ----------------------------- */
+  // 載入題目
   useEffect(() => {
     let alive = true;
     async function run() {
@@ -282,7 +254,6 @@ export default function QuizPage() {
       try {
         const url = `${API_BASE}/api/quiz?slug=${encodeURIComponent(slug)}`;
         const r = await fetch(url, { credentials: "omit" });
-
         const ret = (await r.json()) as ApiQuizResponse;
 
         setApiUrl(ret?.usedUrl || null);
@@ -318,9 +289,7 @@ export default function QuizPage() {
     };
   }, [slug]);
 
-  /* -----------------------------
-     衍生：當前分數
-  ----------------------------- */
+  // 分數
   const score = useMemo(() => {
     let s = 0;
     questions.forEach((q, i) => {
@@ -331,22 +300,17 @@ export default function QuizPage() {
 
   const total = questions.length;
 
-  /* -----------------------------
-     互動：選擇答案
-  ----------------------------- */
+  // 互動：作答
   function pickMCQ(i: number) {
-    // 已選就只能切回同一個；其他禁用（在渲染層控制）
     setAnswers((prev) => {
       const cur = prev[idx];
-      if (cur != null && cur !== i) return prev; // 已選其他 → 不變
+      if (cur != null && cur !== i) return prev;
       const copy = prev.slice();
       copy[idx] = i;
-      // +1 浮現
       if (isCorrect(questions[idx], i)) {
         setPopPlusOne(true);
         setTimeout(() => setPopPlusOne(false), 650);
       }
-      // 若想自動下一題，可在此 setIdx(idx+1)
       return copy;
     });
   }
@@ -354,7 +318,7 @@ export default function QuizPage() {
   function pickTF(val: boolean) {
     setAnswers((prev) => {
       const cur = prev[idx];
-      if (cur != null && cur !== val) return prev; // 已選另一邊 → 不變
+      if (cur != null && cur !== val) return prev;
       const copy = prev.slice();
       copy[idx] = val;
       if (isCorrect(questions[idx], val)) {
@@ -400,9 +364,7 @@ export default function QuizPage() {
     setDone(false);
   };
 
-  /* -----------------------------
-     郵件報告
-  ----------------------------- */
+  // 郵件報告
   async function sendReportEmail() {
     try {
       const detail_rows = questions.map((q, i) => {
@@ -416,7 +378,7 @@ export default function QuizPage() {
       });
 
       const payload = {
-        to_email: "", // 若後端會從 profile 取，這裡可留空
+        to_email: "",
         student_name: "",
         grade: "",
         score,
@@ -426,17 +388,19 @@ export default function QuizPage() {
         detail_rows,
       };
 
-      const res = await fetch(`/api/report/send?slug=${encodeURIComponent(slug)}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-User-Id": userId || "",
-        },
-        body: JSON.stringify(payload),
-      });
+      const res = await fetch(
+        `${API_BASE}/api/report/send?slug=${encodeURIComponent(slug)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-Id": userId || "",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
 
       if (res.status === 402) {
-        // 需要付費
         let msg = "此功能需購買方案";
         try {
           const j = await res.json();
@@ -458,9 +422,7 @@ export default function QuizPage() {
     }
   }
 
-  /* -----------------------------
-     輔助：判分與格式化
-  ----------------------------- */
+  // 判分 & 顯示文字
   function isCorrect(q: Question, a: any): boolean {
     if (q.type === "mcq") {
       if (a == null) return false;
@@ -560,12 +522,11 @@ export default function QuizPage() {
         </div>
         <p>No questions.</p>
         {SHOW_DEBUG && (apiUrl || debug) && (
-         <div className="text-xs text-gray-500 break-all">
-           source: {apiUrl ?? "N/A"}
-           {debug ? <> · debug: {debug}</> : null}
-         </div>
+          <div className="break-all text-xs text-gray-500">
+            source: {apiUrl ?? "N/A"}
+            {debug ? <> · debug: {debug}</> : null}
+          </div>
         )}
-
       </div>
     );
   }
@@ -573,7 +534,7 @@ export default function QuizPage() {
   if (done) {
     const percent = total ? Math.round((score / total) * 100) : 0;
     return (
-      <div className="p-6 max-w-3xl mx-auto space-y-5">
+      <div className="mx-auto max-w-3xl space-y-5 p-6">
         {/* 彩紙 */}
         <div className="relative h-10">
           <AnimatePresence>
@@ -587,10 +548,14 @@ export default function QuizPage() {
                   opacity: [0, 1, 0],
                   rotate: (Math.random() - 0.5) * 120,
                 }}
-                transition={{ duration: 1.2 + Math.random() * 0.3, ease: "easeOut", delay: i * 0.03 }}
+                transition={{
+                  duration: 1.2 + Math.random() * 0.3,
+                  ease: "easeOut",
+                  delay: i * 0.03,
+                }}
                 className="absolute left-1/2 top-1/2"
               >
-                <span className="text-lg select-none">🎉</span>
+                <span className="select-none text-lg">🎉</span>
               </motion.div>
             ))}
           </AnimatePresence>
@@ -603,8 +568,8 @@ export default function QuizPage() {
           </Link>
         </div>
 
-        {(apiUrl || debug) && (
-          <div className="text-xs text-gray-500 break-all">
+        {SHOW_DEBUG && (apiUrl || debug) && (
+          <div className="break-all text-xs text-gray-500">
             source: {apiUrl ?? "N/A"}
             {debug ? <> · debug: {debug}</> : null}
           </div>
@@ -621,20 +586,16 @@ export default function QuizPage() {
             return (
               <div
                 key={q.id ?? i}
-                className={`rounded border p-4 ${ok ? "border-emerald-400 bg-emerald-50" : "border-red-300 bg-red-50"}`}
+                className={`rounded border p-4 ${
+                  ok ? "border-emerald-400 bg-emerald-50" : "border-red-300 bg-red-50"
+                }`}
               >
                 <div className="mb-1 text-sm text-gray-500">Q{i + 1}</div>
                 <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
 
-                <div className="text-sm">
-                  你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}
-                </div>
+                <div className="text-sm">你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}</div>
 
-                {!ok && (
-                  <div className="mt-2 text-sm">
-                    正確答案： {formatCorrectAnswer(q)}
-                  </div>
-                )}
+                {!ok && <div className="mt-2 text-sm">正確答案： {formatCorrectAnswer(q)}</div>}
 
                 {"explain" in q && q.explain ? (
                   <div className="mt-2 text-sm text-gray-600">解釋：{renderContent(q.explain)}</div>
@@ -649,7 +610,7 @@ export default function QuizPage() {
             Restart
           </button>
           <Link to="/pricing" className="rounded border px-3 py-2">
-           寄送報告 ✉️
+            寄送報告 ✉️
           </Link>
           <Link to="/packs" className="rounded border px-3 py-2">
             ← Back to Packs
@@ -664,7 +625,7 @@ export default function QuizPage() {
   const a = answers[idx];
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-6">
+    <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">
@@ -672,7 +633,7 @@ export default function QuizPage() {
           </h1>
 
           {SHOW_DEBUG && (apiUrl || debug) && (
-            <div className="text-xs text-gray-500 break-all">
+            <div className="break-all text-xs text-gray-500">
               <span className="font-medium">source:</span> {apiUrl ?? "N/A"}
               {debug ? <> · debug: {debug}</> : null}
             </div>
@@ -686,7 +647,6 @@ export default function QuizPage() {
 
       {/* 進度條 + 分數徽章 */}
       <div className="flex items-center justify-between">
-        {/* 進度條 */}
         <div className="mr-3 flex-1">
           <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
             <motion.div
@@ -701,7 +661,6 @@ export default function QuizPage() {
           </div>
         </div>
 
-        {/* 分數徽章 + +1 浮現 */}
         <motion.div
           key={score}
           initial={{ scale: 0.9, opacity: 0.6 }}
@@ -736,13 +695,13 @@ export default function QuizPage() {
         {q.type === "mcq" && (
           <div className="grid gap-2">
             {q.choices.map((text, i) => {
-              const picked = a != null; // 是否已選過本題
+              const picked = a != null;
               const active = a === i;
               return (
                 <motion.button
                   key={i}
                   onClick={() => pickMCQ(i)}
-                  disabled={picked && !active} // 已選後，其他選項禁用
+                  disabled={picked && !active}
                   whileTap={{ scale: 0.98 }}
                   whileHover={{ scale: picked ? 1 : 1.01 }}
                   className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${
