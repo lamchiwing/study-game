@@ -648,9 +648,9 @@ export default function QuizPage() {
           <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">
             Restart
           </button>
-          <button onClick={sendReportEmail} className="rounded border px-3 py-2">
-            寄送報告 ✉️
-          </button>
+          <Link to="/pricing" className="rounded border px-3 py-2">
+           寄送報告 ✉️
+          </Link>
           <Link to="/packs" className="rounded border px-3 py-2">
             ← Back to Packs
           </Link>
