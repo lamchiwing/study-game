@@ -5,6 +5,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/,'')
   || "https://study-game-back.onrender.com";
+// 原本可能是 import.meta.env.DEV
+const SHOW_DEBUG = false;
+
 
 
 
