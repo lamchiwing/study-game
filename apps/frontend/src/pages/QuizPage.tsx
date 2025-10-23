@@ -560,11 +560,12 @@ export default function QuizPage() {
         </div>
         <p>No questions.</p>
         {SHOW_DEBUG && (apiUrl || debug) && (
-          <div className="text-xs text-gray-500 break-all">
-            <span className="font-medium">source:</span> {apiUrl ?? "N/A"}
-            {debug ? <> · debug: {debug}</> : null}
-          </div>
+         <div className="text-xs text-gray-500 break-all">
+           source: {apiUrl ?? "N/A"}
+           {debug ? <> · debug: {debug}</> : null}
+         </div>
         )}
+
       </div>
     );
   }
