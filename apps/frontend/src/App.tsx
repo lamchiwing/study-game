@@ -3,7 +3,7 @@ import PacksPage from "./pages/PacksPage";
 import QuizPage from "./pages/QuizPage";
 import UploadPage from "./pages/UploadPage";
 import ParentReportPage from "./pages/ParentReportPage";
-import PricingPage from "./pages/PricingPage"; // ✅ 用相對路徑
+import PricingPage from "./pages/PricingPage"; // ← 新增這行
 
 export default function App() {
   return (
@@ -23,3 +23,21 @@ export default function App() {
     </BrowserRouter>
   );
 }
+
+// 其它 imports 與 Layout …
+
+export default function App() {
+  return (
+    <Routes>
+      {/* 你的其他路由 */}
+      <Route path="/packs" element={<PacksPage />} />
+      <Route path="/quiz" element={<QuizPage />} />
+
+      {/* ✅ 新增定價頁 */}
+      <Route path="/pricing" element={<PricingPage />} />
+
+      {/* …其他 */}
+    </Routes>
+  );
+}
+
