@@ -226,6 +226,48 @@ function parseList(x?: string): string[] {
   return s.split("|").map((v) => v.trim());
 }
 
+function translateSlug(slug: string): string {
+  const parts = (slug || "").split("/").map(s => s.trim().toLowerCase()).filter(Boolean);
+
+  const subjectAlias: Record<string, string> = {
+    chinese: "中文", cn: "中文", chi: "中文", zh: "中文",
+    math: "數學", maths: "數學", mathematics: "數學",
+    general: "常識", gen: "常識", gs: "常識",
+  };
+
+  // 轉成 grade1…grade6
+  function toGradeToken(tok: string): string {
+    let t = tok;
+    for (const pre of ["grade", "g", "p", "primary", "yr", "year"]) {
+      if (t.startsWith(pre)) { t = t.slice(pre.length); break; }
+    }
+    const n = parseInt(t.replace(/[^0-9]/g, ""), 10);
+    return n >= 1 && n <= 6 ? `grade${n}` : "";
+  }
+
+  const gradeMap: Record<string, string> = {
+    grade1: "小一", grade2: "小二", grade3: "小三",
+    grade4: "小四", grade5: "小五", grade6: "小六",
+  };
+
+  let zhSubject = "";
+  let zhGrade = "";
+  let tail = parts[parts.length - 1] || "";
+
+  for (const tok of parts) {
+    if (!zhSubject && subjectAlias[tok]) zhSubject = subjectAlias[tok];
+    const g = toGradeToken(tok);
+    if (!zhGrade && g && gradeMap[g]) zhGrade = gradeMap[g];
+  }
+
+  // 美化最後一段作為標題
+  const prettyTitle = tail
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (m) => m.toUpperCase());
+
+  return [zhSubject, zhGrade, prettyTitle].filter(Boolean).join(" · ");
+}
+
 /* =========================================================
    組件
 ========================================================= */
