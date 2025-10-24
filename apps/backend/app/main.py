@@ -12,17 +12,55 @@ app.include_router(billing_router)
 from .routes_report import router as report_router
 app.include_router(report_router)
 
+# apps/backend/app/main.py
 from __future__ import annotations
 import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 
- 先建立 app，再掛中介與路由（很重要！）
 app = FastAPI(
     title="Study Game API",
     version=os.getenv("APP_VERSION", "0.1.0"),
 )
 
+# 先建立 app，再掛中介與路由（很重要！）
+ALLOWED = [o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "*").split(",") if o.strip()]
+allow_all = (len(ALLOWED) == 0)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"] if allow_all else ALLOWED,
+    allow_credentials=not allow_all,  # 若用 * 建議關閉 credentials
+    allow_methods=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-User-Id"],
+    max_age=86400,
+)
+
+@app.get("/", response_class=PlainTextResponse)
+def root():
+    return "study-game-back OK"
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+@app.get("/version")
+def version():
+    return {"version": os.getenv("APP_VERSION", "0.1.0")}
+
+# 掛載路由（放在 app 建好之後）
+try:
+    from .routers.report import router as report_router
+    app.include_router(report_router)
+except Exception as e:
+    print("[WARN] fail to include routers.report:", e)
+
+try:
+    from .billing_stripe import router as billing_router
+    app.include_router(billing_router)
+except Exception as e:
+    print("[WARN] fail to include billing_stripe:", e)
 
 # --- entitlements (fallback for get_user_profile) ---
 try:
@@ -112,38 +150,6 @@ def smart_decode(b: bytes) -> str:
         try: return b.decode(enc)
         except Exception: continue
     return b.decode("utf-8", errors="replace")
-
-@app.get("/", response_class=PlainTextResponse)
-def root():
-    return "study-game-back OK"
-# ---- 健康檢查與版本 ----
-@app.get("/")
-def root():
-    return {"ok": True, "service": "study-game-backend"}
-
-@app.get("/health")
-def health():
-    return {"status": "healthy"}
-
-@app.get("/version")
-def version():
-    return {"version": os.getenv("APP_VERSION", "0.1.0")}
-
-# ---- 掛載路由（保持在 *app 建好之後* ）----
-# routes_report.py
-try:
-    from .routes_report import router as report_router
-    app.include_router(report_router)
-except Exception as e:
-    # 不要讓整個服務掛掉；把錯誤記在啟動 log 即可
-    print("[WARN] fail to include routes_report:", e)
-
-# billing_stripe.py
-try:
-    from .billing_stripe import router as billing_router
-    app.include_router(billing_router)
-except Exception as e:
-    print("[WARN] fail to include billing_stripe:", e)
 
 @app.get("/__test_mail")
 def __test_mail(to: str):
