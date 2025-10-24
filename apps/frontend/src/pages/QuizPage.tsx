@@ -244,6 +244,11 @@ export default function QuizPage() {
   const [done, setDone] = useState(false);
   const [popPlusOne, setPopPlusOne] = useState(false);
 
+  // 報告寄送欄位
+  const [reportEmail, setReportEmail] = useState("");
+  const [reportName, setReportName] = useState("");
+  const [sending, setSending] = useState(false);
+
   // 取得 UserId（示例：從 localStorage）
   const userId = useMemo(() => localStorage.getItem("uid") || "", []);
 
@@ -349,28 +354,29 @@ export default function QuizPage() {
     });
   }
 
-  // QuizPage.tsx 內部
-  const [sending, setSending] = useState(false);
-  const [sp] = useSearchParams();
-  const slug = sp.get("slug") || "chinese-p1"; // 依你實際來源取得 slug
-
   async function onClickSendReport() {
     if (sending) return;
+    if (!reportEmail.trim()) {
+      alert("請輸入收件電郵");
+      return;
+    }
     setSending(true);
     const ok = await sendReportEmail({
       slug,
-      toEmail: formEmail,              // 你表單中的收件電郵
-      studentName: formStudentName,    // 表單中的學生名
-      score: latestScore,              // 你的分數來源
-      total: totalQuestions,           // 總題數
-      onInfo: (m) => alert(m),         // 你可換成 toast/snackbar
+      toEmail: reportEmail,
+      studentName: reportName || "學生",
+      score,
+      total,
+      onInfo: (m) => alert(m),
       onError: (m) => alert(m),
-  });
-  setSending(false);
-  if (ok) {
-    // 清表單或顯示成功狀態
+    });
+    setSending(false);
+    if (ok) {
+      setReportEmail("");
+      // 可選：清空姓名
+      // setReportName("");
+    }
   }
-}
 
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
   const prevQ = () => idx > 0 && setIdx(idx - 1);
@@ -387,64 +393,6 @@ export default function QuizPage() {
     setIdx(0);
     setDone(false);
   };
-
-  // 郵件報告
-  async function sendReportEmail() {
-    try {
-      const detail_rows = questions.map((q, i) => {
-        const ok = isCorrect(q, answers[i]);
-        return {
-          q: stripBBCode(q.stem),
-          yourAns: formatYourAnswer(q, answers[i]),
-          correct: formatCorrectAnswer(q),
-          ok,
-        };
-      });
-
-      const payload = {
-        to_email: "",
-        student_name: "",
-        grade: "",
-        score,
-        total,
-        duration_min: undefined,
-        summary: "",
-        detail_rows,
-      };
-
-      const res = await fetch(
-        `${API_BASE}/api/report/send?slug=${encodeURIComponent(slug)}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-User-Id": userId || "",
-          },
-          body: JSON.stringify(payload),
-        }
-      );
-
-      if (res.status === 402) {
-        let msg = "此功能需購買方案";
-        try {
-          const j = await res.json();
-          if (j?.detail) msg = j.detail;
-        } catch {}
-        alert(msg);
-        window.location.href = "/pricing";
-        return;
-      }
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "發送失敗");
-      }
-
-      alert("已寄出學習報告！");
-    } catch (err: any) {
-      alert(err?.message || String(err));
-    }
-  }
 
   // 判分 & 顯示文字
   function isCorrect(q: Question, a: any): boolean {
@@ -529,49 +477,6 @@ export default function QuizPage() {
       .map((L, li) => `${stripBBCode(L)} → ${stripBBCode(q.right[q.answerMap[li]])}`)
       .join(" | ");
   }
-
-// 與你後端一致的 API_BASE
-function normBase(s?: string) {
-  let b = (s ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/, "");
-  return b || "https://study-game-back.onrender.com";
-}
-const API_BASE = normBase(import.meta.env.VITE_API_BASE as string | undefined);
-
-// 解析 slug → (subject, grade)；和後端邏輯一致
-function parseSubjectGrade(slug?: string) {
-  const s = (slug || "").toLowerCase();
-  const parts = s.split(/[^a-z0-9]+/).filter(Boolean);
-  let subject = ""; let grade = "";
-  const map: Record<string, string> = {
-    cn: "chinese", chi: "chinese", zh: "chinese",
-    maths: "math", mathematics: "math",
-    gen: "general", gs: "general",
-  };
-  const valid = new Set(["chinese", "math", "general"]);
-
-  function normSub(x: string) {
-    const k = x.trim().toLowerCase();
-    return map[k] || k;
-  }
-  function toGradeToken(x: string) {
-    let t = x.trim().toLowerCase();
-    for (const pre of ["grade", "g", "p", "primary", "yr", "year"]) {
-      if (t.startsWith(pre)) { t = t.slice(pre.length); break; }
-    }
-    const digits = t.replace(/[^0-9]/g, "");
-    const n = digits ? parseInt(digits, 10) : 0;
-    return (n >= 1 && n <= 6) ? `grade${n}` : "";
-  }
-
-  for (const tok of parts) {
-    const gg = toGradeToken(tok);
-    if (gg) { grade = gg; continue; }
-    const ns = normSub(tok);
-    if (valid.has(ns)) { subject = ns; }
-  }
-  return { subject, grade };
-}
-
 
   /* =========================================================
      Render
@@ -672,16 +577,39 @@ function parseSubjectGrade(slug?: string) {
           })}
         </div>
 
-        <div className="flex gap-2">
-          <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">
-            Restart
-          </button>
-          <Link to="/pricing" className="rounded border px-3 py-2">
-            寄送報告 ✉️
-          </Link>
-          <Link to="/packs" className="rounded border px-3 py-2">
-            ← Back to Packs
-          </Link>
+        {/* 寄送報告區塊 */}
+        <div className="flex flex-col gap-3">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <input
+              type="email"
+              value={reportEmail}
+              onChange={(e) => setReportEmail(e.target.value)}
+              placeholder="家長收件電郵"
+              className="rounded border px-3 py-2"
+            />
+            <input
+              value={reportName}
+              onChange={(e) => setReportName(e.target.value)}
+              placeholder="學生姓名（可留空）"
+              className="rounded border px-3 py-2"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">
+              Restart
+            </button>
+            <button
+              onClick={onClickSendReport}
+              disabled={sending || !reportEmail.trim()}
+              className="rounded border px-3 py-2 disabled:opacity-50"
+            >
+              {sending ? "寄送中…" : "寄送報告 ✉️"}
+            </button>
+            <Link to="/packs" className="rounded border px-3 py-2">
+              ← Back to Packs
+            </Link>
+          </div>
         </div>
       </div>
     );
