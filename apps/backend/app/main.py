@@ -116,6 +116,19 @@ def smart_decode(b: bytes) -> str:
 @app.get("/", response_class=PlainTextResponse)
 def root():
     return "study-game-back OK"
+# ---- 健康檢查與版本 ----
+@app.get("/")
+def root():
+    return {"ok": True, "service": "study-game-backend"}
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+@app.get("/version")
+def version():
+    return {"version": os.getenv("APP_VERSION", "0.1.0")}
+
 
 @app.get("/__test_mail")
 def __test_mail(to: str):
