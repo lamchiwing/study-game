@@ -65,18 +65,22 @@ def need(name: str) -> str:
 
 app = FastAPI()
 
-allowlist = ["https://study-game-front.onrender.com", "http://localhost:5173"]
-if os.getenv("FRONTEND_ORIGIN"):
-    allowlist.append(os.getenv("FRONTEND_ORIGIN"))
+# 以環境變數設定多個允許來源，逗號分隔
+# 例：CORS_ALLOW_ORIGINS="https://study-game-front.onrender.com,https://mypenisblue.com,https://www.mypenisblue.com"
+ALLOWED = [o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
+
+# 若沒設，開發期可以放寬為 * 並關閉 credentials
+allow_all = (len(ALLOWED) == 0)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowlist,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    allow_credentials=False,
-    max_age=86400,
+    allow_origins=["*"] if allow_all else ALLOWED,
+    allow_credentials=not allow_all,  # 若用 * 就不要帶 credentials
+    allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+    allow_headers=["Content-Type","Authorization","X-Requested-With","X-User-Id"],
+    max_age=86400,  # 保留：一天快取 preflight
 )
+
 
 S3_BUCKET = need("S3_BUCKET")
 S3_ACCESS_KEY = need("S3_ACCESS_KEY")
