@@ -623,9 +623,11 @@ export default function QuizPage() {
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">
-            {packTitle ? `Quiz：${packTitle}` : `Quiz: ${slug}`}
-          </h1>
+            <h1 className="text-2xl font-semibold">
+              {packTitle
+                ? `Quiz：${packTitle}`
+                : `Quiz：${translateSlug(slug)}`}
+            </h1>
 
           {SHOW_DEBUG && (apiUrl || debug) && (
             <div className="break-all text-xs text-gray-500">
