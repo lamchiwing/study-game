@@ -4,6 +4,8 @@ import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
 import { sendReportEmail } from "../lib/report";
+import { titleFromSlug } from "../data/titles";
+
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
