@@ -506,6 +506,131 @@ export default function QuizPage() {
       .join(" | ");
   }
 
+// 與你後端一致的 API_BASE
+function normBase(s?: string) {
+  let b = (s ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/, "");
+  return b || "https://study-game-back.onrender.com";
+}
+const API_BASE = normBase(import.meta.env.VITE_API_BASE as string | undefined);
+
+// 解析 slug → (subject, grade)；和後端邏輯一致
+function parseSubjectGrade(slug?: string) {
+  const s = (slug || "").toLowerCase();
+  const parts = s.split(/[^a-z0-9]+/).filter(Boolean);
+  let subject = ""; let grade = "";
+  const map: Record<string, string> = {
+    cn: "chinese", chi: "chinese", zh: "chinese",
+    maths: "math", mathematics: "math",
+    gen: "general", gs: "general",
+  };
+  const valid = new Set(["chinese", "math", "general"]);
+
+  function normSub(x: string) {
+    const k = x.trim().toLowerCase();
+    return map[k] || k;
+  }
+  function toGradeToken(x: string) {
+    let t = x.trim().toLowerCase();
+    for (const pre of ["grade", "g", "p", "primary", "yr", "year"]) {
+      if (t.startsWith(pre)) { t = t.slice(pre.length); break; }
+    }
+    const digits = t.replace(/[^0-9]/g, "");
+    const n = digits ? parseInt(digits, 10) : 0;
+    return (n >= 1 && n <= 6) ? `grade${n}` : "";
+  }
+
+  for (const tok of parts) {
+    const gg = toGradeToken(tok);
+    if (gg) { grade = gg; continue; }
+    const ns = normSub(tok);
+    if (valid.has(ns)) { subject = ns; }
+  }
+  return { subject, grade };
+}
+
+// —— 這個函式你可以在「寄報告」按鈕用到 —— //
+export async function sendReportEmail({
+  slug,                      // 例如 "chinese-p1"
+  toEmail,
+  studentName,
+  score,
+  total,
+  onInfo,                    // (msg:string) => void  顯示訊息（可對接 toast）
+  onError,                   // (msg:string) => void  顯示錯誤
+}: {
+  slug: string;
+  toEmail: string;
+  studentName: string;
+  score: number;
+  total: number;
+  onInfo?: (m: string) => void;
+  onError?: (m: string) => void;
+}) {
+  const { subject, grade } = parseSubjectGrade(slug);
+  const uid = localStorage.getItem("uid") || "";
+
+  try {
+    const res = await fetch(`${API_BASE}/report/send?slug=${encodeURIComponent(slug)}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Id": uid, // 後端需要
+      },
+      body: JSON.stringify({
+        to_email: toEmail,
+        student_name: studentName,
+        score,
+        total,
+      }),
+    });
+
+    if (res.ok) {
+      onInfo?.("報告已寄出 ✅");
+      return true;
+    }
+
+    // 讀字串以便提示
+    const text = await res.text();
+
+    if (res.status === 402) {
+      // 未購買 → 帶上科目與年級去結帳（Starter）
+      onInfo?.("此功能需購買方案，正前往結帳頁…");
+      const q = new URLSearchParams({
+        plan: "starter",
+        subject,
+        grade,
+      });
+      window.location.assign(`/checkout?${q.toString()}`);
+      return false;
+    }
+
+    if (res.status === 429) {
+      // 超額 / 冷卻
+      onError?.("寄送過於頻密或已達今日上限，請稍後再試。");
+      return false;
+    }
+
+    if (res.status === 400) {
+      onError?.("資料不完整或格式有誤（請檢查電郵、科目與年級）。");
+      return false;
+    }
+
+    if (res.status === 401) {
+      onError?.("缺少用戶識別（X-User-Id）。請重新整理再試。");
+      return false;
+    }
+
+    // 其他狀況（500 等）
+    onError?.(`寄送失敗：${text || `HTTP ${res.status}`}`);
+    return false;
+
+  } catch (err: any) {
+    onError?.(`連線失敗：${err?.message || err}`);
+    return false;
+  }
+}
+
+
   /* =========================================================
      Render
   ========================================================= */
