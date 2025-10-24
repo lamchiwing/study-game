@@ -348,6 +348,30 @@ export default function QuizPage() {
     });
   }
 
+  // QuizPage.tsx 內部
+  const [sending, setSending] = useState(false);
+  const [sp] = useSearchParams();
+  const slug = sp.get("slug") || "chinese-p1"; // 依你實際來源取得 slug
+
+  async function onClickSendReport() {
+    if (sending) return;
+    setSending(true);
+    const ok = await sendReportEmail({
+      slug,
+      toEmail: formEmail,              // 你表單中的收件電郵
+      studentName: formStudentName,    // 表單中的學生名
+      score: latestScore,              // 你的分數來源
+      total: totalQuestions,           // 總題數
+      onInfo: (m) => alert(m),         // 你可換成 toast/snackbar
+      onError: (m) => alert(m),
+  });
+  setSending(false);
+  if (ok) {
+    // 清表單或顯示成功狀態
+  }
+}
+
+
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
   const prevQ = () => idx > 0 && setIdx(idx - 1);
   const restart = () => {
