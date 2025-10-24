@@ -1,14 +1,23 @@
 # apps/backend/app/routers/report.py
 from __future__ import annotations
+
 import os
 import re
 import time
+import calendar
 from typing import Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Header, Query
 from pydantic import BaseModel
 
-# 注意：因為在 routers/ 內，所以回到上一層 app 匯入
+# 用於依使用者時區計算「今天 00:00」
+from datetime import datetime, time as dtime, timezone, timedelta
+try:
+    from zoneinfo import ZoneInfo  # Python 3.9+
+except Exception:
+    ZoneInfo = None  # 在沒有 zoneinfo 的環境下會退回用 UTC 或 offset 模式
+
+# 從 app 層匯入你已有的權限與寄信工具
 from ..entitlements import has_access, current_plan
 from ..mailer_sendgrid import send_report_email
 
@@ -77,17 +86,51 @@ def _parse_subject_grade(slug: str) -> Tuple[str, str]:
             subj = ns
     return subj, gnum
 
+# === 依使用者時區計算「今天 00:00」 =========================================
+def _midnight_ts_from_client(tz_name: Optional[str], offset_min: Optional[int]) -> int:
+    """
+    回傳「使用者今天 00:00:00」的 epoch 秒數。
+      - 優先使用 IANA 時區字串（X-User-Tz），例如 'Europe/Stockholm'
+      - 次選使用分鐘偏移值（X-UTC-Offset），例如 -60（瑞典冬季）
+      - 都沒有或無效 → 當作 UTC
+    """
+    now_utc = datetime.now(timezone.utc)
+
+    # 1) IANA tz
+    if tz_name and ZoneInfo:
+        try:
+            z = ZoneInfo(tz_name.strip())
+            local_now = now_utc.astimezone(z)
+            local_midnight = datetime.combine(local_now.date(), dtime(0, 0, 0), z)
+            return int(local_midnight.timestamp())
+        except Exception:
+            pass
+
+    # 2) offset（分鐘；JS 的 getTimezoneOffset 可能是負值）
+    if isinstance(offset_min, int):
+        try:
+            # 在 Python 的 timedelta，中正數代表向東（+hours）
+            # JS getTimezoneOffset: local = UTC - offset_min(minutes)
+            # 例如：Stockholm 冬季 offset_min = -60 → local = UTC - (-60) = UTC + 60 min
+            offset = -offset_min
+            tz = timezone(timedelta(minutes=offset))
+            local_now = now_utc.astimezone(tz)
+            local_midnight = datetime.combine(local_now.date(), dtime(0, 0, 0), tz)
+            return int(local_midnight.timestamp())
+        except Exception:
+            pass
+
+    # 3) fallback: UTC 午夜
+    t = now_utc
+    utc_midnight = datetime.combine(t.date(), dtime(0, 0, 0), timezone.utc)
+    return int(utc_midnight.timestamp())
+
 # === 報告配額與冷卻（簡易內存） =============================================
 _REPORT_LOG: dict[str, list[int]] = {}
 
-def _midnight_utc_ts() -> int:
-    t = time.gmtime()
-    return int(time.mktime((t.tm_year, t.tm_mon, t.tm_mday, 0, 0, 0, 0, 0, -1)))
-
-def _prune_and_count_today(user_id: str) -> int:
-    start = _midnight_utc_ts()
+def _prune_and_count_since(user_id: str, start_ts: int) -> int:
     arr = _REPORT_LOG.get(user_id, [])
-    arr = [ts for ts in arr if ts >= start]
+    arr = [ts for ts in arr if ts >= start_ts]
     _REPORT_LOG[user_id] = arr
     return len(arr)
 
@@ -112,13 +155,15 @@ def send_report(
     payload: ReportPayload,
     slug: Optional[str] = Query(default=None, description="例如 chinese-p1 / math-grade2"),
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
+    x_user_tz: Optional[str] = Header(default=None, alias="X-User-Tz"),
+    x_utc_offset: Optional[str] = Header(default=None, alias="X-UTC-Offset"),
 ):
     # 1) 檢查 email
     to_email = (payload.to_email or "").strip()
     if not to_email or not EMAIL_RX.match(to_email):
         raise HTTPException(status_code=400, detail="收件電郵格式不正確")
 
-    # 2) 解析科目/年級
+    # 2) 解析科目/年級（如需當權限維度）
     subject, grade = _parse_subject_grade(slug or "")
     if not subject or not grade:
         raise HTTPException(status_code=400, detail="缺少科目或年級（slug 無法解析）")
@@ -131,11 +176,18 @@ def send_report(
         if not has_access(x_user_id, subject, grade):
             raise HTTPException(status_code=402, detail="報告功能需購買方案")
 
+        # 依使用者時區/偏移定義「今天 00:00」
+        try:
+            off = int(x_utc_offset) if (x_utc_offset is not None and str(x_utc_offset).strip() != "") else None
+        except Exception:
+            off = None
+        local_day_start = _midnight_ts_from_client(x_user_tz, off)
+
         plan = current_plan(x_user_id)  # 'pro' | 'starter' | 'none'
         if plan not in ("pro", "starter"):
             raise HTTPException(status_code=402, detail="報告功能需購買方案")
 
-        sent_today = _prune_and_count_today(x_user_id)
+        sent_today = _prune_and_count_since(x_user_id, local_day_start)
         if plan == "pro":
             if sent_today >= REPORTS_PER_DAY_PRO:
                 raise HTTPException(status_code=429, detail="今日報告配額已用完（PRO）")
@@ -174,9 +226,10 @@ def send_report(
         html=html,
     )
     if not ok:
+        # 也可以改 502 與較泛化訊息：raise HTTPException(502, "寄送失敗，請稍後再試")
         raise HTTPException(status_code=500, detail=f"寄送失敗：{msg}")
 
-    # 6) 記錄成功寄送
+    # 6) 記錄成功寄送（供配額/冷卻使用）
     if REPORT_PAID_ONLY and x_user_id:
         _record_sent(x_user_id)
 
