@@ -55,10 +55,20 @@ export async function sendReportEmail({
   onError?: (m: string) => void;
 }) {
   const uid = localStorage.getItem("uid") || "";
+
+  // 🔹 新增：使用者時區與 UTC offset（分鐘）
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  const offset = new Date().getTimezoneOffset(); // 例：瑞典冬季 -60
+
   try {
     const res = await fetch(`${API_BASE}/report/send?slug=${encodeURIComponent(slug)}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-User-Id": uid },
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-Id": uid,
+        "X-User-Tz": tz,                 // ✅ 新增：使用者時區，例如 "Europe/Stockholm"
+        "X-UTC-Offset": String(offset),  // ✅ 新增：分鐘偏移，例如 -60
+      },
       body: JSON.stringify({
         to_email: toEmail,
         student_name: studentName,
