@@ -12,6 +12,16 @@ app.include_router(billing_router)
 from .routes_report import router as report_router
 app.include_router(report_router)
 
+from __future__ import annotations
+import os
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+ 先建立 app，再掛中介與路由（很重要！）
+app = FastAPI(
+    title="Study Game API",
+    version=os.getenv("APP_VERSION", "0.1.0"),
+)
 
 
 # --- entitlements (fallback for get_user_profile) ---
