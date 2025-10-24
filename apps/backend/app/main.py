@@ -129,6 +129,21 @@ def health():
 def version():
     return {"version": os.getenv("APP_VERSION", "0.1.0")}
 
+# ---- 掛載路由（保持在 *app 建好之後* ）----
+# routes_report.py
+try:
+    from .routes_report import router as report_router
+    app.include_router(report_router)
+except Exception as e:
+    # 不要讓整個服務掛掉；把錯誤記在啟動 log 即可
+    print("[WARN] fail to include routes_report:", e)
+
+# billing_stripe.py
+try:
+    from .billing_stripe import router as billing_router
+    app.include_router(billing_router)
+except Exception as e:
+    print("[WARN] fail to include billing_stripe:", e)
 
 @app.get("/__test_mail")
 def __test_mail(to: str):
