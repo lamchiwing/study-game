@@ -6,6 +6,7 @@ import io
 import csv
 import random
 import re
+import stripe
 from typing import Optional, List, Dict, Any
 
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
@@ -22,6 +23,17 @@ app = FastAPI(
     title="Study Game API",
     version=os.getenv("APP_VERSION", "0.1.0"),
 )
+
+# ---- ENV ----
+STRIPE_SECRET_KEY    = os.getenv("STRIPE_SECRET_KEY", "")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
+
+# ✅ 情況 A：FRONTEND fallback（這三選一）
+FRONTEND = os.getenv("FRONTEND_URL") or os.getenv("FRONTEND_ORIGIN") or "http://localhost:5173"
+
+if STRIPE_SECRET_KEY:
+    stripe.api_key = STRIPE_SECRET_KEY
+
 
 # 以環境變數設定多個允許來源，逗號分隔
 # 例：CORS_ALLOW_ORIGINS="https://study-game-front.onrender.com,https://mypenisblue.com,https://www.mypenisblue.com"
