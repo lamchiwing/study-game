@@ -37,17 +37,23 @@ if STRIPE_SECRET_KEY:
 
 # 以環境變數設定多個允許來源，逗號分隔
 # 例：CORS_ALLOW_ORIGINS="https://study-game-front.onrender.com,https://mypenisblue.com,https://www.mypenisblue.com"
-ALLOWED = [o.strip() for o in os.getenv("CORS_ALLOW_ORIGINS", "").split(",") if o.strip()]
+
+def to_origin(u: str) -> str:
+    m = re.match(r'^(https?://[^/]+)', (u or '').strip())
+    return (m.group(1) if m else u).rstrip('/')
+
+ALLOWED = [to_origin(o) for o in os.getenv("CORS_ALLOW_ORIGINS","").split(",") if o.strip()]
 allow_all = (len(ALLOWED) == 0)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if allow_all else ALLOWED,
-    allow_credentials=True,  # 若用 * 建議不要帶 credentials
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-User-Id"],
-    max_age=86400,  # 一天快取 preflight
+    allow_credentials=not allow_all,
+    allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
+    allow_headers=["Content-Type","Authorization","X-Requested-With","X-User-Id"],
+    max_age=86400,
 )
+
 
 # =========================
 # Health / Version
