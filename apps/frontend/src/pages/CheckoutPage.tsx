@@ -31,6 +31,9 @@ export default function CheckoutPage() {
   const goCheckout = useCallback(async () => {
     setBusy(true);
     setErr(null);
+    // ✅ Log 1：確認 API_BASE 與即將呼叫的 URL
+    console.log("Calling checkout", `${API_BASE}/api/billing/checkout`);
+    
     try {
       const body: any = {
         plan,
@@ -42,6 +45,9 @@ export default function CheckoutPage() {
         body.grade = grade;
       }
 
+      // ✅ Log 1：確認 API_BASE 與即將呼叫的 URL
+      console.log("Calling checkout", `${API_BASE}/api/billing/checkout`);
+      
       const res = await fetch(`${API_BASE}/api/billing/checkout`, {
         method: "POST",
         headers: {
@@ -71,6 +77,7 @@ export default function CheckoutPage() {
   }, [API_BASE, plan, subject, grade, userId]);
 
   useEffect(() => {
+    console.log("Calling checkout", `${API_BASE}/api/billing/checkout`);
     if (!firedRef.current) {
       firedRef.current = true;
       void goCheckout();
