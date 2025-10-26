@@ -43,7 +43,7 @@ allow_all = (len(ALLOWED) == 0)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if allow_all else ALLOWED,
-    allow_credentials=not allow_all,  # 若用 * 建議不要帶 credentials
+    allow_credentials=True,  # 若用 * 建議不要帶 credentials
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization", "X-Requested-With", "X-User-Id"],
     max_age=86400,  # 一天快取 preflight
