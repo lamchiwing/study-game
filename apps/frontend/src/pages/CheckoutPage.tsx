@@ -40,7 +40,6 @@ export default function CheckoutPage() {
   const subject = sp.get("subject") || "chinese";
   const grade = sp.get("grade") || "grade1";
 
-  const userId = useMemo(() => localStorage.getItem("uid") || "", []);
   const userId = useMemo(() => {
     let id = localStorage.getItem("uid");
     if (!id) {
