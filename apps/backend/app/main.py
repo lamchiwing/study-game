@@ -12,6 +12,8 @@ from typing import Optional, List, Dict, Any
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
+# apps/backend/app/main.py
+from fastapi import Header
 
 import boto3
 from botocore.config import Config
@@ -53,6 +55,52 @@ app.add_middleware(
     allow_headers=["Content-Type","Authorization","X-Requested-With","X-User-Id"],
     max_age=86400,
 )
+
+@app.post("/api/billing/checkout")
+async def billing_checkout(
+    payload: dict,
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
+):
+    # 1) 取得 user_id（沒有就自動產生匿名）
+    user_id = x_user_id or payload.get("user_id")
+    if not user_id:
+        import uuid
+        user_id = f"anon_{uuid.uuid4()}"
+
+    # 2) 解析前端傳來的 plan / urls
+    plan = (payload.get("plan") or "starter").lower()
+    success_url = payload.get("success_url") or f"{FRONTEND}/pricing"
+    cancel_url  = payload.get("cancel_url")  or f"{FRONTEND}/pricing"
+
+    # 3) 對應 Stripe Price（用環境變數）
+    price_ids = {
+        "starter": os.getenv("STRIPE_PRICE_STARTER"),
+        "pro":     os.getenv("STRIPE_PRICE_PRO"),
+    }
+    price_id = price_ids.get(plan) or price_ids["starter"]
+    if not price_id:
+        raise HTTPException(status_code=500, detail="Stripe price not configured")
+
+    if not STRIPE_SECRET_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+
+    try:
+        # 4) 建立 Checkout Session（訂閱範例；一次性付款請改 mode="payment"）
+        session = stripe.checkout.Session.create(
+            mode="subscription",
+            line_items=[{"price": price_id, "quantity": 1}],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            client_reference_id=user_id,  # 用來在 webhook 對回你的使用者
+            # 可選：讓 Stripe 自動建立/關聯 customer
+            # customer_email=payload.get("email") or None,
+            # subscription_data={"metadata": {"plan": plan, "uid": user_id}},
+            allow_promotion_codes=True,
+        )
+        # 5) 回傳 url（前端直接跳轉）
+        return {"id": session.id, "url": session.url}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Create session failed: {e}")
 
 
 # =========================
