@@ -127,7 +127,7 @@ export default function PacksPage() {
   return (
     <div className="p-8">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">Packs</h1>
+        <h1 className="text-2xl font-semibold">練習目錄</h1>
         <Link to="/pricing" className="rounded-xl border px-3 py-1.5 text-sm hover:bg-gray-50">
           了解付費方案
         </Link>
