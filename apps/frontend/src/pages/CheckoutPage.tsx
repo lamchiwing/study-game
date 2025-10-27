@@ -41,6 +41,20 @@ export default function CheckoutPage() {
   const grade = sp.get("grade") || "grade1";
 
   const userId = useMemo(() => localStorage.getItem("uid") || "", []);
+  const userId = useMemo(() => {
+    let id = localStorage.getItem("uid");
+    if (!id) {
+      // 生成穩定的匿名 id（Safari/舊瀏覽器備援）
+      const rand = Math.random().toString(36).slice(2);
+      const ts = Date.now().toString(36);
+      id = (typeof crypto !== "undefined" && "randomUUID" in crypto)
+        ? crypto.randomUUID()
+        : `anon_${ts}_${rand}`;
+      localStorage.setItem("uid", id);
+  }
+  return id;
+}, []);
+
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
