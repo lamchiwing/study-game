@@ -7,84 +7,117 @@ import stripe
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel
 
-from .entitlements import add_access  # 你專案已有這支
-# 不再匯入 .schemas，以免 ModuleNotFoundError
+# 你專案既有的「寫入權限」函式（保持不變）
+from .entitlements import add_access
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
-# --- Stripe 環境變數 ---------------------------------------------------------
-STRIPE_SECRET_KEY    = os.getenv("STRIPE_SECRET_KEY")       # sk_live_xxx / sk_test_xxx
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")  # whsec_xxx
+# --- Stripe 環境變數（請在 Render 設定） --------------------------------------
+STRIPE_SECRET_KEY     = os.getenv("STRIPE_SECRET_KEY")        # sk_live_xxx / sk_test_xxx
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")    # whsec_xxx
 
-# 你在 Stripe 後台建立的 price id
-PRICE_STARTER = os.getenv("PRICE_STARTER")  # e.g. price_123
-PRICE_PRO     = os.getenv("PRICE_PRO")      # e.g. price_456
+# ✅ 使用統一命名（和你後端其他地方一致）
+STRIPE_PRICE_STARTER  = os.getenv("STRIPE_PRICE_STARTER")     # 形如 price_1Qxxxx...
+STRIPE_PRICE_PRO      = os.getenv("STRIPE_PRICE_PRO")         # 形如 price_1Qyyyy...
 
 if STRIPE_SECRET_KEY:
     stripe.api_key = STRIPE_SECRET_KEY
-# 若沒設定，不在 import 階段報錯，讓服務能啟動；在呼叫端點時再報錯。
+# 若未設定，不在 import 階段報錯；等呼叫端點時再報清楚的 HTTPException。
 
-# --- 請求模型 ---------------------------------------------------------------
+# 讓 webhook 能從 price_id 反推方案（後備用）
+PRICE_TO_PLAN: Dict[Optional[str], str] = {
+    STRIPE_PRICE_STARTER: "starter",
+    STRIPE_PRICE_PRO: "pro",
+}
+
+# --- 請求模型 ----------------------------------------------------------------
 class CheckoutBody(BaseModel):
-    plan: str                 # "starter" | "pro"
-    subject: Optional[str] = None  # starter 用：e.g. "chinese"
-    grade: Optional[str] = None    # starter 用：e.g. "grade1"
+    plan: str                       # "starter" | "pro"
+    subject: Optional[str] = None   # starter 用（可選）
+    grade: Optional[str] = None     # starter 用（可選）
     success_url: str
     cancel_url: str
 
-# --- 小工具 -----------------------------------------------------------------
-def _ensure_stripe_ready():
+# --- 小工具 ------------------------------------------------------------------
+def _ensure_stripe_ready(plan: str):
     if not STRIPE_SECRET_KEY:
         raise HTTPException(500, "Stripe 未設定（缺少 STRIPE_SECRET_KEY）")
-    if not (PRICE_STARTER and PRICE_PRO):
-        # 只要用到對應方案卻沒 price id 就報錯
-        return
+    p = (plan or "").strip().lower()
+    if p == "starter" and not STRIPE_PRICE_STARTER:
+        raise HTTPException(500, "缺少 STRIPE_PRICE_STARTER")
+    if p == "pro" and not STRIPE_PRICE_PRO:
+        raise HTTPException(500, "缺少 STRIPE_PRICE_PRO")
+    if p not in ("starter", "pro"):
+        raise HTTPException(400, f"不支援的方案：{plan}")
 
 def _pick_price(plan: str) -> str:
     p = (plan or "").strip().lower()
-    if p == "starter" and PRICE_STARTER:
-        return PRICE_STARTER
-    if p == "pro" and PRICE_PRO:
-        return PRICE_PRO
-    raise HTTPException(400, "不支援的方案或未設定對應的 PRICE_* 環境變數")
+    if p == "starter" and STRIPE_PRICE_STARTER:
+        return STRIPE_PRICE_STARTER
+    if p == "pro" and STRIPE_PRICE_PRO:
+        return STRIPE_PRICE_PRO
+    # 理論上不會走到這裡，交給 _ensure_stripe_ready 先擋
+    raise HTTPException(400, "方案未配置對應的 Price ID")
 
-# --- 建立 Checkout Session --------------------------------------------------
+# --- 建立 Checkout Session ---------------------------------------------------
 @router.post("/checkout")
 def create_checkout_session(
     body: CheckoutBody,
     x_user_id: Optional[str] = Header(default=None, alias="X-User-Id"),
 ):
-    _ensure_stripe_ready()
+    """
+    建立 Stripe Checkout Session
+    - 接受 plan（starter/pro）
+    - 前端可帶 success_url / cancel_url
+    - 會把 user_id / plan / subject / grade 放進 metadata
+    - 回傳 { id, url }，前端可直接導向 url
+    """
+    plan = (body.plan or "starter").lower()
+    _ensure_stripe_ready(plan)
 
-    if not x_user_id:
-        raise HTTPException(400, "Missing X-User-Id")
+    # X-User-Id 可選：缺少時自動生成匿名 uid（避免前端漏傳時 400）
+    user_id = x_user_id or ""
+    if not user_id:
+        import uuid
+        user_id = f"anon_{uuid.uuid4()}"
 
-    price_id = _pick_price(body.plan)
+    price_id = _pick_price(plan)
 
-    # 將關鍵資訊放進 metadata，Webhook 會用它來寫入權限
+    # 放到 metadata（Webhook 使用），同時也放 client_reference_id（更好對回）
     metadata: Dict[str, Any] = {
-        "plan": (body.plan or "starter").lower(),
-        "user_id": x_user_id,
-        "subject": body.subject or "",
-        "grade": body.grade or "",
+        "plan": plan,
+        "user_id": user_id,
     }
+    if plan == "starter":
+        metadata["subject"] = body.subject or ""
+        metadata["grade"] = body.grade or ""
 
     try:
         sess = stripe.checkout.Session.create(
-            mode="subscription",  # 若是一次性付款可改 "payment"
+            mode="subscription",  # 一次性付款請改 "payment"
             line_items=[{"price": price_id, "quantity": 1}],
             success_url=body.success_url + "?session_id={CHECKOUT_SESSION_ID}",
             cancel_url=body.cancel_url,
             allow_promotion_codes=True,
+            client_reference_id=user_id,
             metadata=metadata,
         )
-        return {"url": sess.url}
+        return {"id": sess.id, "url": sess.url}
     except Exception as e:
-        raise HTTPException(500, f"Stripe error: {e}")
+        # 將 Stripe 原訊息帶回，方便排查（仍以 400 回應避免暴露太多）
+        raise HTTPException(400, f"Create session failed: {e}")
 
-# --- Webhook：寫入權限 ------------------------------------------------------
+# --- Webhook：依付款結果寫入權限 ---------------------------------------------
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
+    """
+    請在 Stripe Dashboard → Developers → Webhooks
+    endpoint 設為：<你的域名>/api/billing/webhook
+    並至少勾選：
+      - checkout.session.completed
+      - customer.subscription.updated
+      - customer.subscription.deleted
+    """
     if not STRIPE_WEBHOOK_SECRET:
         raise HTTPException(500, "Stripe Webhook 未設定（缺少 STRIPE_WEBHOOK_SECRET）")
 
@@ -95,24 +128,62 @@ async def stripe_webhook(request: Request):
     except Exception as e:
         raise HTTPException(400, f"Webhook signature verification failed: {e}")
 
-    # 我們只處理完成結帳事件
-    if evt.get("type") == "checkout.session.completed":
-        s = evt["data"]["object"]
-        md = (s.get("metadata") or {})
-        plan   = (md.get("plan") or "starter").lower()
-        user   = md.get("user_id")
-        subject = (md.get("subject") or "") or None
-        grade   = (md.get("grade") or "") or None
+    etype = evt.get("type")
+    data = evt["data"]["object"]
 
-        if user:
-            # pro → 全科全年級；starter → 指定科目年級
-            if plan == "pro":
-                add_access(user_id=user, scope={"plan": "pro"}, expires_at=None)
+    # 1) 結帳完成：依 metadata / price 判定方案，寫入權限
+    if etype == "checkout.session.completed":
+        md = (data.get("metadata") or {})
+        uid = data.get("client_reference_id") or md.get("user_id")
+        plan = (md.get("plan") or "").lower()
+
+        # 後備：若 metadata 沒 plan，就從 subscription price 判斷
+        if not plan:
+            sub_id = data.get("subscription")
+            if sub_id:
+                try:
+                    sub = stripe.Subscription.retrieve(sub_id)
+                    items = sub.get("items", {}).get("data", [])
+                    price_id = items[0]["price"]["id"] if items else None
+                    plan = PRICE_TO_PLAN.get(price_id, "starter")
+                except Exception:
+                    plan = "starter"
             else:
-                add_access(user_id=user, scope={
-                    "plan": "starter",
-                    "subject": subject,
-                    "grade": grade,
-                }, expires_at=None)
+                plan = "starter"
+
+        # 寫入權限
+        if uid:
+            if plan == "pro":
+                # 你的 add_access 寫法：pro 方案，不限科目年級
+                add_access(user_id=uid, scope={"plan": "pro"}, expires_at=None)
+            else:
+                subject = (md.get("subject") or "") or None
+                grade = (md.get("grade") or "") or None
+                add_access(
+                    user_id=uid,
+                    scope={"plan": "starter", "subject": subject, "grade": grade},
+                    expires_at=None,
+                )
+
+    # 2) 訂閱更新：如升降級、價格變動
+    elif etype == "customer.subscription.updated":
+        sub = data
+        # 嘗試從 metadata 取得 uid，否則（實務上）可在 Customer/Subscription.metadata 儲存 uid
+        uid = (sub.get("metadata") or {}).get("uid")
+        items = sub.get("items", {}).get("data", [])
+        price_id = items[0]["price"]["id"] if items else None
+        plan = PRICE_TO_PLAN.get(price_id, "starter")
+        if uid:
+            if plan == "pro":
+                add_access(user_id=uid, scope={"plan": "pro"}, expires_at=None)
+            else:
+                # 降回 starter（不清楚 subject/grade 時，先給空白，待用戶下次選擇）
+                add_access(user_id=uid, scope={"plan": "starter"}, expires_at=None)
+
+    # 3) 訂閱刪除/取消：降回 starter（或 free）
+    elif etype == "customer.subscription.deleted":
+        uid = (data.get("metadata") or {}).get("uid")
+        if uid:
+            add_access(user_id=uid, scope={"plan": "starter"}, expires_at=None)
 
     return {"ok": True}
