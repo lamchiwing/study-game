@@ -135,6 +135,13 @@ try:
 except Exception as e:
     print("[WARN] fail to include billing_stripe:", e)
 
+try:
+    from .entitlement_api import router as ent_api
+    app.include_router(ent_api)
+except Exception as e:
+    print("[WARN] fail to include entitlement_api:", e)
+
+
 # =========================
 # S3 – packs / quiz / upload
 # =========================
