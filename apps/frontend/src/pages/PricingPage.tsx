@@ -1,6 +1,41 @@
-import { Link } from "react-router-dom";
+// apps/frontend/src/pages/PricingPage.tsx
+import { Link, useNavigate } from "react-router-dom";
+import { useMemo, useState } from "react";
+
+const SUBJECTS = [
+  { value: "chinese", label: "中文" },
+  { value: "math", label: "數學" },
+  { value: "general", label: "常識" },
+];
+
+const GRADES = [
+  { value: "grade1", label: "小一" },
+  { value: "grade2", label: "小二" },
+  { value: "grade3", label: "小三" },
+  { value: "grade4", label: "小四" },
+  { value: "grade5", label: "小五" },
+  { value: "grade6", label: "小六" },
+];
 
 export default function PricingPage() {
+  const navigate = useNavigate();
+
+  // Starter 用戶選擇（預設：中文 + 小一）
+  const [starterSubject, setStarterSubject] = useState("chinese");
+  const [starterGrade, setStarterGrade] = useState("grade1");
+
+  // 產生 checkout 連結
+  const starterHref = useMemo(
+    () =>
+      `/checkout?plan=starter&subject=${encodeURIComponent(
+        starterSubject
+      )}&grade=${encodeURIComponent(starterGrade)}`,
+    [starterSubject, starterGrade]
+  );
+
+  const goStarter = () => navigate(starterHref);
+  const goPro = () => navigate(`/checkout?plan=pro`);
+
   return (
     <div className="p-8 max-w-5xl mx-auto">
       {/* 頂部標題＋回練習頁 */}
@@ -18,8 +53,8 @@ export default function PricingPage() {
           <h2 className="mb-2 text-xl font-semibold">Free</h2>
           <p className="mb-4 text-sm text-gray-600">基本練習、少量題包、無家長報告</p>
           <ul className="mb-6 list-disc pl-5 text-sm space-y-1">
-            <li>可做免費題包</li>
-            <li>基本答題統計（本機）</li>
+            <li>可做免費練習</li>
+            <li>基本答題統計</li>
           </ul>
           <div className="text-lg font-bold">HK$0</div>
         </div>
@@ -27,18 +62,58 @@ export default function PricingPage() {
         {/* Starter */}
         <div className="rounded-2xl border p-6 shadow-sm ring-2 ring-indigo-500 bg-white">
           <h2 className="mb-2 text-xl font-semibold">Starter</h2>
-          <p className="mb-4 text-sm text-gray-600">解鎖指定科目＋年級題包、家長報告</p>
+          <p className="mb-4 text-sm text-gray-600">解鎖「指定科目＋年級」題包，支援家長報告</p>
+
+          {/* ✅ 讓用戶先選科目 + 年級 */}
+          <div className="mb-4 grid grid-cols-1 gap-3">
+            <label className="text-sm font-medium">
+              選擇科目
+              <select
+                className="mt-1 w-full rounded-lg border px-3 py-2"
+                value={starterSubject}
+                onChange={(e) => setStarterSubject(e.target.value)}
+              >
+                {SUBJECTS.map((s) => (
+                  <option key={s.value} value={s.value}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="text-sm font-medium">
+              選擇年級
+              <select
+                className="mt-1 w-full rounded-lg border px-3 py-2"
+                value={starterGrade}
+                onChange={(e) => setStarterGrade(e.target.value)}
+              >
+                {GRADES.map((g) => (
+                  <option key={g.value} value={g.value}>
+                    {g.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
           <ul className="mb-6 list-disc pl-5 text-sm space-y-1">
-            <li>指定科目＋年級全題包</li>
+            <li>指定科目＋年級全練習</li>
             <li>家長報告（Email）</li>
           </ul>
-          <div className="mb-4 text-lg font-bold">HK$?? / 月</div>
-          <Link
-            to="/checkout?plan=starter"
+
+          <div className="mb-4 text-lg font-bold">HK$48 / 月</div>
+
+          {/* 直接導向結帳（攜帶 subject / grade） */}
+          <button
+            onClick={goStarter}
             className="inline-block rounded-xl border px-4 py-2 hover:bg-gray-50"
           >
             前往購買
-          </Link>
+          </button>
+
+          {/* 亦可顯示最終會前往的 URL（debug 用） */}
+          {/* <div className="mt-2 text-xs text-gray-500 break-all">{starterHref}</div> */}
         </div>
 
         {/* Pro */}
@@ -46,17 +121,20 @@ export default function PricingPage() {
           <h2 className="mb-2 text-xl font-semibold">Pro</h2>
           <p className="mb-4 text-sm text-gray-600">全部科目年級、進階追蹤與練習建議</p>
           <ul className="mb-6 list-disc pl-5 text-sm space-y-1">
-            <li>全部題包</li>
+            <li>全部練習</li>
             <li>家長報告＋歷史紀錄</li>
-            <li>AI 推薦練習</li>
+            <li>推薦練習</li>
           </ul>
-          <div className="mb-4 text-lg font-bold">HK$?? / 月</div>
-          <Link
-            to="/checkout?plan=pro"
+          <div className="mb-4 text-lg font-bold">HK$80 / 月</div>
+          <button
+            onClick={goPro}
             className="inline-block rounded-xl border px-4 py-2 hover:bg-gray-50"
           >
             前往購買
-          </Link>
+          </button>
+          {/* 如將來要做「Pro 可自選兩個年級」，
+              建議加多一個多選 UI，checkout 時先暫存在 localStorage，
+              Webhook 後再讓用戶到 Profile 內確認年級綁定。 */}
         </div>
       </div>
 
