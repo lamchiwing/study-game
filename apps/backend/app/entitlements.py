@@ -17,6 +17,25 @@ _FAKE_ENTS: Dict[str, Any] = {
     "user_002": {"grade_from": 1, "grade_to": 3, "subjects": ["math", "chinese"]},
 }
 
+# apps/backend/app/entitlements.py
+PLANS = {
+    "starter": {
+        "max_students": 1,
+        "report_enabled": False,
+        "allowed_grades": ["grade1","grade2","grade3"],
+        "ads_enabled": True,   # ← 免費／Starter 顯示廣告
+    },
+    "pro": {
+        "max_students": 2,
+        "report_enabled": True,
+        "allowed_grades": ["grade1","grade2","grade3"],
+        "ads_enabled": False,  # ← Pro 免廣告
+    },
+}
+
+def ads_enabled(plan: str) -> bool:
+    return bool(PLANS.get(plan, PLANS["starter"])["ads_enabled"])
+
 # === 小工具 ===============================================================
 _SUBJ_ALIASES = {
     "cn": "chinese", "chi": "chinese", "zh": "chinese",
