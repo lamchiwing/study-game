@@ -4,24 +4,25 @@ import PacksPage from "./pages/PacksPage";
 import QuizPage from "./pages/QuizPage";
 import PricingPage from "./pages/PricingPage";
 import CheckoutPage from "./pages/CheckoutPage";
+import Layout from "./components/Layout";
 
-function App() {
+export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        {/* 預設導向 packs */}
-        <Route path="/" element={<Navigate to="/packs" replace />} />
+      <Layout>
+        <Routes>
+          {/* 預設導向 packs */}
+          <Route path="/" element={<Navigate to="/packs" replace />} />
 
-        <Route path="/packs" element={<PacksPage />} />
-        <Route path="/quiz" element={<QuizPage />} />
-        <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/packs" element={<PacksPage />} />
+          <Route path="/quiz" element={<QuizPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
+          <Route path="/checkout" element={<CheckoutPage />} />
 
-        {/* 兜底：未知路徑導回 packs */}
-        <Route path="*" element={<Navigate to="/packs" replace />} />
-        <Route path="/checkout" element={<CheckoutPage />} />
-      </Routes>
+          {/* 兜底：未知路徑導回 packs */}
+          <Route path="*" element={<Navigate to="/packs" replace />} />
+        </Routes>
+      </Layout>
     </BrowserRouter>
   );
 }
-
-export default App;
