@@ -1,17 +1,28 @@
-# apps/backend/app/entitlement_api.py
+# apps/backend/app/routers/entitlement_api.py
 from __future__ import annotations
-from fastapi import APIRouter, Header
-from .entitlements_store import get_user_plan
-from .entitlements import ads_enabled, report_enabled, max_students
+from fastapi import APIRouter, Header, HTTPException
 
-router = APIRouter()
+# 全部從新的 entitlements（DB 版）匯入
+from ..entitlements import (
+    current_plan,
+    ads_enabled,
+    report_enabled,
+    max_students,
+    get_entitlement,
+)
 
-@router.get("/api/user/entitlement")
-def get_entitlement(x_user_id: str = Header(..., alias="X-User-Id")):
-    plan = get_user_plan(x_user_id)
+router = APIRouter(prefix="/api/user", tags=["user"])
+
+@router.get("/entitlement")
+def read_entitlement(x_user_id: str = Header(..., alias="X-User-Id")):
+    if not x_user_id:
+        raise HTTPException(400, "Missing X-User-Id")
+
+    plan = current_plan(x_user_id)
     return {
         "plan": plan,
         "ads_enabled": ads_enabled(plan),
         "report_enabled": report_enabled(plan),
         "max_students": max_students(plan),
+        "raw": get_entitlement(x_user_id) or {"grants": []},
     }
