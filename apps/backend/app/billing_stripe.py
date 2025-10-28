@@ -111,9 +111,9 @@ def create_checkout_session(
 @router.post("/webhook")
 async def stripe_webhook(request: Request):
     """
-    請在 Stripe Dashboard → Developers → Webhooks
-    endpoint 設為：<你的域名>/api/billing/webhook
-    並至少勾選：
+    Stripe Dashboard → Developers → Webhooks
+    endpoint: <你的域名>/api/billing/webhook
+    訂閱事件至少勾選：
       - checkout.session.completed
       - customer.subscription.updated
       - customer.subscription.deleted
@@ -124,20 +124,26 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig = request.headers.get("stripe-signature", "")
     try:
-        evt = stripe.Webhook.construct_event(payload=payload, sig_header=sig, secret=STRIPE_WEBHOOK_SECRET)
+        evt = stripe.Webhook.construct_event(
+            payload=payload, sig_header=sig, secret=STRIPE_WEBHOOK_SECRET
+        )
     except Exception as e:
         raise HTTPException(400, f"Webhook signature verification failed: {e}")
 
     etype = evt.get("type")
     data = evt["data"]["object"]
 
-    # 1) 結帳完成：依 metadata / price 判定方案，寫入權限
+    # ------------------------------------------------------------------
+    # 1) 結帳完成：依 metadata / price 判定方案
+    #    - starter: 只寫入 1 組（subject, grade）
+    #    - pro    : 最多寫入 2 組（subjects_csv, grades_csv 的配對）
+    # ------------------------------------------------------------------
     if etype == "checkout.session.completed":
-        md = (data.get("metadata") or {})
+        md  = (data.get("metadata") or {})
         uid = data.get("client_reference_id") or md.get("user_id")
-        plan = (md.get("plan") or "").lower()
+        plan = (md.get("plan") or "").strip().lower()
 
-        # 後備：若 metadata 沒 plan，就從 subscription price 判斷
+        # 後備：若沒有帶 plan，就從 subscription 的 price 判斷
         if not plan:
             sub_id = data.get("subscription")
             if sub_id:
@@ -151,36 +157,60 @@ async def stripe_webhook(request: Request):
             else:
                 plan = "starter"
 
-        # 寫入權限
         if uid:
-            if plan == "pro":
-                # 你的 add_access 寫法：pro 方案，不限科目年級
-                add_access(user_id=uid, scope={"plan": "pro"}, expires_at=None)
-            else:
-                subject = (md.get("subject") or "") or None
-                grade = (md.get("grade") or "") or None
-                add_access(
-                    user_id=uid,
-                    scope={"plan": "starter", "subject": subject, "grade": grade},
-                    expires_at=None,
-                )
+            if plan == "starter":
+                # 只允許 1 科 + 1 年級
+                subject = (md.get("subject") or "").strip()
+                grade   = (md.get("grade")   or "").strip()
+                if subject and grade:
+                    add_access(
+                        user_id=uid,
+                        scope={"plan": "starter", "subject": subject, "grade": grade},
+                        expires_at=None,
+                    )
+                else:
+                    # 沒帶齊就先給 starter（空白科目/年級），之後讓用戶在設定補選
+                    add_access(user_id=uid, scope={"plan": "starter"}, expires_at=None)
 
-    # 2) 訂閱更新：如升降級、價格變動
+            elif plan == "pro":
+                # 最多 2 組（subject_i, grade_i）配對
+                subjects = [x.strip() for x in (md.get("subjects_csv") or "").split(",") if x.strip()]
+                grades   = [x.strip() for x in (md.get("grades_csv")   or "").split(",") if x.strip()]
+                pairs = list(zip(subjects, grades))[:2]
+
+                if pairs:
+                    for subj, grd in pairs:
+                        add_access(
+                            user_id=uid,
+                            scope={"plan": "pro", "subject": subj, "grade": grd},
+                            expires_at=None,
+                        )
+                else:
+                    # 若沒帶到選擇，先給一筆通用 pro（全科全年級）
+                    add_access(user_id=uid, scope={"plan": "pro"}, expires_at=None)
+
+    # ------------------------------------------------------------------
+    # 2) 訂閱更新：可能升級/降級/換價（這裡以 price 決定 plan）
+    #    * 若要精準綁回使用者，建議在 Customer/Subscription.metadata 存 uid
+    # ------------------------------------------------------------------
     elif etype == "customer.subscription.updated":
         sub = data
-        # 嘗試從 metadata 取得 uid，否則（實務上）可在 Customer/Subscription.metadata 儲存 uid
-        uid = (sub.get("metadata") or {}).get("uid")
+        uid = (sub.get("metadata") or {}).get("uid")  # 若你有存
         items = sub.get("items", {}).get("data", [])
         price_id = items[0]["price"]["id"] if items else None
         plan = PRICE_TO_PLAN.get(price_id, "starter")
+
         if uid:
             if plan == "pro":
+                # 不清楚選擇配對時，給通用 pro（全科全年級）
                 add_access(user_id=uid, scope={"plan": "pro"}, expires_at=None)
             else:
-                # 降回 starter（不清楚 subject/grade 時，先給空白，待用戶下次選擇）
+                # 降為 starter；不清楚該哪一組時，先空白，日後用戶再選
                 add_access(user_id=uid, scope={"plan": "starter"}, expires_at=None)
 
-    # 3) 訂閱刪除/取消：降回 starter（或 free）
+    # ------------------------------------------------------------------
+    # 3) 訂閱取消：降回 starter（或你的系統定義為 free 也可）
+    # ------------------------------------------------------------------
     elif etype == "customer.subscription.deleted":
         uid = (data.get("metadata") or {}).get("uid")
         if uid:
