@@ -19,19 +19,26 @@ _FAKE_ENTS: Dict[str, Any] = {
 
 # apps/backend/app/entitlements.py
 PLANS = {
-    "starter": {
+    "free": {  # 可選：若你有 free 的概念
         "max_students": 1,
         "report_enabled": False,
-        "allowed_grades": ["grade1","grade2","grade3"],
-        "ads_enabled": True,   # ← 免費／Starter 顯示廣告
+        "allowed_grades": [],
+        "ads_enabled": True,   # ← 只有免費有廣告
+    },
+    "starter": {
+        "max_students": 1,
+        "report_enabled": True,
+        "allowed_grades": ["grade1","grade2","grade3","grade4","grade5","grade6"],  # 允許選任何，但實際由 grants 限 1 組
+        "ads_enabled": False,  # ← 付費無廣告
     },
     "pro": {
         "max_students": 2,
         "report_enabled": True,
-        "allowed_grades": ["grade1","grade2","grade3"],
-        "ads_enabled": False,  # ← Pro 免廣告
+        "allowed_grades": ["grade1","grade2","grade3","grade4","grade5","grade6"],
+        "ads_enabled": False,  # ← 付費無廣告
     },
 }
+
 
 def ads_enabled(plan: str) -> bool:
     return bool(PLANS.get(plan, PLANS["starter"])["ads_enabled"])
