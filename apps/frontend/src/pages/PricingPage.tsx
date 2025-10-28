@@ -62,7 +62,7 @@ export default function PricingPage() {
         {/* Starter */}
         <div className="rounded-2xl border p-6 shadow-sm ring-2 ring-indigo-500 bg-white">
           <h2 className="mb-2 text-xl font-semibold">Starter</h2>
-          <p className="mb-4 text-sm text-gray-600">解鎖「指定科目＋年級」題包，支援家長報告</p>
+          <p className="mb-4 text-sm text-gray-600">解鎖「指定針對科目＋年級」，支援家長報告</p>
 
           {/* ✅ 讓用戶先選科目 + 年級 */}
           <div className="mb-4 grid grid-cols-1 gap-3">
@@ -155,7 +155,7 @@ export default function PricingPage() {
           </thead>
           <tbody>
             <tr className="border-t">
-              <td className="px-4 py-3">可用題包</td>
+              <td className="px-4 py-3">可用選項</td>
               <td className="px-4 py-3">部分免費</td>
               <td className="px-4 py-3">指定科目＋年級</td>
               <td className="px-4 py-3">全部</td>
