@@ -69,11 +69,28 @@ export default function CheckoutPage() {
     const success = `${window.location.origin}/pricing`;
     const cancel = `${window.location.origin}/pricing`;
 
-    // 建立要送去後端的 payload
-    const body: CheckoutPayload =
-      plan === "starter"
-        ? { plan: "starter", subject, grade, success_url: success, cancel_url: cancel }
-        : { plan: "pro", success_url: success, cancel_url: cancel };
+    // 從 URL 讀（Pro 用）
+const subjectsCsv = (sp.get("subjects") || "").trim(); // 例: "math,chinese"
+const gradesCsv   = (sp.get("grades")   || "").trim(); // 例: "grade1,grade3"
+
+// 建立要送去後端的 payload
+const body: CheckoutPayload =
+  plan === "starter"
+    ? {
+        plan: "starter",
+        subject,
+        grade,
+        success_url: success,
+        cancel_url: cancel,
+      }
+    : {
+        plan: "pro",
+        // ✅ 新增：把多選傳給後端（可為空，後端會 fallback 成通用 pro）
+        subjects_csv: subjectsCsv || undefined,
+        grades_csv: gradesCsv || undefined,
+        success_url: success,
+        cancel_url: cancel,
+      };
 
     console.log("Calling checkout", `${API_BASE}/api/billing/checkout`, body);
 
