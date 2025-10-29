@@ -11,7 +11,7 @@ PLANS: Dict[str, Dict[str, Any]] = {
     "free": {
         "max_students": 1,
         "report_enabled": False,
-        "allowed_grades": [],
+        "allowed_grades": ["grade1","grade2","grade3"],
         "ads_enabled": True,   # 只有免費顯示廣告
         "name": "Free",
     },
