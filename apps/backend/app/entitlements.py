@@ -1,23 +1,25 @@
-# apps/backend/app/entitlements.py   ← 建議用這個檔名覆蓋
+# apps/backend/app/entitlements.py
 from __future__ import annotations
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
 from .db import SessionLocal
 from .models import Customer, EntGrant
 
-# === 方案旗標（前端廣告/報告判斷用） ==========================
+# === 方案旗標（前端廣告/報告/可見年級判斷用） ==========================
 PLANS: Dict[str, Dict[str, Any]] = {
     "free": {
         "max_students": 1,
         "report_enabled": False,
-        "allowed_grades": ["grade1","grade2","grade3"],
-        "ads_enabled": True,   # 只有免費顯示廣告
+        # ✅ 免費只允許一個年級（小一）
+        "allowed_grades": ["grade1"],
+        "ads_enabled": True,   # 免費顯示廣告
         "name": "Free",
     },
     "starter": {
         "max_students": 1,
         "report_enabled": True,
+        # Starter/Pro 預設支援 1–6 年級（實際可見題包仍由授權 grants 決定）
         "allowed_grades": [f"grade{i}" for i in range(1, 7)],
         "ads_enabled": False,  # 付費免廣告
         "name": "Starter",
@@ -40,6 +42,25 @@ def report_enabled(plan: str) -> bool:
 def max_students(plan: str) -> int:
     return int(PLANS.get(plan, PLANS["free"])["max_students"])
 
+def canonical_grade_str(grade: str | int | None) -> str:
+    """
+    將輸入年級正規化為 'gradeN' 字串；無效回傳空字串。
+    例：'G1'/'p1'/'1' → 'grade1'
+    """
+    n = _parse_grade_to_num(grade)
+    return f"grade{n}" if n else ""
+
+def grade_allowed(plan: str, grade: str | int) -> bool:
+    """
+    只根據方案本身的可見列表做 UI/入口層級的判斷；
+    真正的授權仍以 grants（has_access）為準。
+    """
+    p = (plan or "free").lower()
+    cg = canonical_grade_str(grade)
+    allowed = PLANS.get(p, PLANS["free"]).get("allowed_grades", [])
+    # 空陣列視為不限制（此專案中都給定了清單）
+    return (not allowed) or (cg in allowed)
+
 # === 工具 ======================================================
 _SUBJ_ALIASES = {
     "cn": "chinese", "chi": "chinese", "zh": "chinese",
@@ -52,22 +73,25 @@ def _norm_subject(s: Optional[str]) -> str:
     return _SUBJ_ALIASES.get(s, s) if s else ""
 
 def _parse_grade_to_num(grade: Optional[str | int]) -> int:
-    if grade is None: return 0
-    if isinstance(grade, int): g = grade
+    """接受 'grade1' / 'g1' / 'p1' / '1' / 1 → 1..6；無效回 0。"""
+    if grade is None:
+        return 0
+    if isinstance(grade, int):
+        g = grade
     else:
         t = grade.strip().lower()
         for pre in ("grade", "g", "p", "primary", "yr", "year"):
             if t.startswith(pre):
                 t = t[len(pre):]
                 break
-        num = "".join(ch for ch in t if ch.isdigit())
-        g = int(num) if num.isdigit() else 0
+        digits = "".join(ch for ch in t if ch.isdigit())
+        g = int(digits) if digits.isdigit() else 0
     return g if 1 <= g <= 6 else 0
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
-# === 對外 API ==================================================
+# === 對外 API：顧客 / 授權（存取 Postgres） ======================
 def upsert_customer(user_id: str, email: str | None, stripe_customer_id: str | None):
     with SessionLocal() as s, s.begin():
         found = s.get(Customer, user_id)
@@ -81,11 +105,12 @@ def upsert_customer(user_id: str, email: str | None, stripe_customer_id: str | N
 
 def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] = None) -> bool:
     """
-    scope：
-      - {"plan":"pro"} → 通配（可選）
+    scope 範例：
+      - {"plan":"pro"}  → Pro 通配（科目不限、年級 1..6）
       - {"plan":"starter","subject":"math","grade":"grade1"}
-      - {"plan":"pro","subject":"chinese","grade":"grade3"}（自選 2 組時各寫一筆）
-    合併規則：相同 plan + subjects 相容（任一為通配或集合相同）且年級區間相交／相鄰 → 合併
+      - {"plan":"pro","subject":"chinese","grade":"grade3"}（Pro 自選 2 組時各寫一筆）
+      - 區間也可：{"plan":"starter","subject":"chinese","grade_from":1,"grade_to":3}
+    合併規則：相同 plan + 相同 subject（或通配 None）且年級區間相交/相鄰 → 合併
     """
     if not user_id:
         return False
@@ -96,9 +121,9 @@ def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] =
     g_to   = scope.get("grade_to")
     g_one  = scope.get("grade")
 
-    # 規範化年級
+    # 年級規範化
     if plan == "pro" and not subj and not g_from and not g_to and not g_one:
-        # 通配 Pro：subjects=None, 1..6
+        # 通配 Pro：subject=None, grade 1..6
         subj_val = None
         gf, gt = 1, 6
     else:
@@ -115,28 +140,22 @@ def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] =
         if gf > gt:
             gf, gt = gt, gf
 
-    exp_dt: datetime | None
+    # 到期時間標準化
     if expires_at is None:
-        exp_dt = None
+        exp_dt: Optional[datetime] = None
     elif isinstance(expires_at, int):
         exp_dt = datetime.fromtimestamp(expires_at, tz=timezone.utc)
     else:
         exp_dt = expires_at
 
+    # 合併/新增
     with SessionLocal() as s, s.begin():
-        # 嘗試合併
-        q = (
-            s.query(EntGrant)
-             .filter(EntGrant.user_id == user_id, EntGrant.plan == plan)
-        )
-        if subj_val is None:
-            q = q.filter(EntGrant.subject.is_(None))
-        else:
-            q = q.filter(EntGrant.subject == subj_val)
+        q = s.query(EntGrant).filter(EntGrant.user_id == user_id, EntGrant.plan == plan)
+        q = q.filter(EntGrant.subject.is_(None)) if subj_val is None else q.filter(EntGrant.subject == subj_val)
 
         merged = False
         for g in q.all():
-            # 年級相交/相鄰即合併
+            # 年級區間相交或相鄰才合併
             if g.grade_to + 1 < gf or gt + 1 < g.grade_from:
                 continue
             g.grade_from = min(g.grade_from, gf)
@@ -164,14 +183,10 @@ def get_entitlement(user_id: Optional[str]) -> Optional[dict]:
     if not user_id:
         return None
     with SessionLocal() as s:
-        grants = (
-            s.query(EntGrant)
-             .filter(EntGrant.user_id == user_id)
-             .all()
-        )
+        grants = s.query(EntGrant).filter(EntGrant.user_id == user_id).all()
         if not grants:
             return None
-        # 回傳 grants 形狀保持跟舊版一致
+        # 與舊版回傳結構相容
         return {
             "grants": [
                 {
@@ -186,6 +201,10 @@ def get_entitlement(user_id: Optional[str]) -> Optional[dict]:
         }
 
 def has_access(user_id: str, subject: str, grade: str | int) -> bool:
+    """
+    真正的授權判斷：必須命中一筆有效 grant（未過期 + subject 相容 + 年級區間包含）。
+    注意：PLANS 的 allowed_grades 只建議用於 UI/入口層級；此處仍以 grants 為準。
+    """
     subj = _norm_subject(subject)
     gnum = _parse_grade_to_num(grade)
     if gnum == 0:
@@ -205,12 +224,12 @@ def has_access(user_id: str, subject: str, grade: str | int) -> bool:
 def current_plan(user_id: str) -> str:
     """推論目前最高等級方案：有 pro grant 視為 pro；否則 starter；都沒有則 free。"""
     with SessionLocal() as s:
-        exists_pro = s.query(
+        has_pro = s.query(
             s.query(EntGrant).filter(EntGrant.user_id == user_id, EntGrant.plan == "pro").exists()
         ).scalar()
-        if exists_pro:
+        if has_pro:
             return "pro"
-        exists_starter = s.query(
+        has_starter = s.query(
             s.query(EntGrant).filter(EntGrant.user_id == user_id, EntGrant.plan == "starter").exists()
         ).scalar()
-        return "starter" if exists_starter else "free"
+        return "starter" if has_starter else "free"
