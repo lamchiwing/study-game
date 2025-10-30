@@ -14,8 +14,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 # apps/backend/app/main.py
 from fastapi import Header
-from .webhook_stripe import router as webhook_router
-app.include_router(webhook_router)
+from .billing_stripe import router as billing_router
+app.include_router(billing_router)
 
 import boto3
 from botocore.config import Config
