@@ -22,6 +22,9 @@ const TITLE_FALLBACK: Record<string, string> = {
   "math/grade1/l": "小一｜數學｜基礎（初階）",
   "math/grade1/m": "小一｜數學｜基礎（中階）",
   "math/grade1/h": "小一｜數學｜基礎（高階）",
+  "Maths/grade1/21-100/L": "小一｜數學｜21-100（初階）",
+  "Maths/grade1/21-100/M": "小一｜數學｜21-100（中階）",
+  "Maths/grade1/21-100/H": "小一｜數學｜21-100（高階）", 
 };
 
 // ---------- 可選：固定排序 ----------
@@ -34,6 +37,9 @@ const CUSTOM_ORDER: Record<string, number> = {
   "math/grade1/l": 5,
   "math/grade1/m": 6,
   "math/grade1/h": 7,
+  "Maths/grade1/21-100/L":8
+  "Maths/grade1/21-100/M":9
+  "Maths/grade1/21-100/H":10
 };
 
 // ---------- 可選：暫時標記哪些是付費 ----------
