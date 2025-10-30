@@ -1,8 +1,9 @@
 // apps/frontend/src/pages/QuizPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
+import { sendReportEmail, parseSubjectGrade } from "../lib/report";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
@@ -271,6 +272,7 @@ function translateSlug(slug: string): string {
 ========================================================= */
 export default function QuizPage() {
   const [sp] = useSearchParams();
+  const navigate = useNavigate();
   const slug = sp.get("slug") || "";
 
   const [loading, setLoading] = useState(true);
@@ -398,91 +400,35 @@ export default function QuizPage() {
     if (!reportEmail.trim()) {
       alert("請輸入收件電郵");
       return;
-    }  
-  
-      setSending(true);
+    }
+
+    setSending(true);
     try {
-    const ok = await sendReportEmail({
-      slug,
-      toEmail: reportEmail,
-      studentName: reportName || "學生",
-      score,
-      total,
-      onInfo: (m) => alert(m),
-      onError: (m) => alert(m),
-      onRequireUpgrade: () => {
-        // 付費牆：帶著來源與科目年級跳到方案頁
-    const { subject, grade } = parseSubjectGrade(slug);
-    const q = new URLSearchParams({
-        from: "report",
-        ...(subject ? { subject } : {}),
-        ...(grade ? { grade } : {}),
-      });
-        navigate(`/pricing?${q.toString()}`);
+      const ok = await sendReportEmail({
+        slug,
+        toEmail: reportEmail,
+        studentName: reportName || "學生",
+        score,
+        total,
+        onInfo: (m) => alert(m),
+        onError: (m) => alert(m),
+        onRequireUpgrade: () => {
+          // 付費牆：帶著來源與科目年級跳到方案頁
+          const { subject, grade } = parseSubjectGrade(slug);
+          const q = new URLSearchParams({
+            from: "report",
+            ...(subject ? { subject } : {}),
+            ...(grade ? { grade } : {}),
+          });
+          navigate(`/pricing?${q.toString()}`);
         },
       });
 
       if (ok) {
+        alert("報告已寄出！");
         setReportEmail("");
-      // 如要也可清空姓名： setReportName("");
-        }
-      } finally {
-        setSending(false);
-        }
+        // 如要也可清空姓名： setReportName("");
       }
-
-      const detail_rows = questions.map((q, i) => ({
-        q: stripBBCode(q.stem),
-        yourAns: formatYourAnswer(q, answers[i]),
-        correct: formatCorrectAnswer(q),
-        ok: isCorrect(q, answers[i]),
-      }));
-
-      const payload = {
-        to_email: reportEmail.trim(),
-        student_name: reportName || "",
-        grade: "",
-        score,
-        total,
-        summary: "",
-        duration_min: undefined,
-        detail_rows,
-      };
-
-      const res = await fetch(
-        `${API_BASE}/api/report/send?slug=${encodeURIComponent(slug)}`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-User-Id": userId || "",
-          },
-          body: JSON.stringify(payload),
-        }
-      );
-
-      if (res.status === 402) {
-        // 需購買 → 跳到付費頁
-        let msg = "此功能需購買方案";
-        try {
-          const j = await res.json();
-          if (j?.detail) msg = j.detail;
-        } catch {}
-        alert(msg);
-        window.location.href = "/pricing";
-        return;
-      }
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || "寄送失敗");
-      }
-
-      alert("報告已寄出！");
-      setReportEmail("");
-      // setReportName(""); // 需要也可清空
-    } catch (err: any) {
-      alert(err?.message || "寄送失敗，請稍後再試");
     } finally {
       setSending(false);
     }
@@ -697,7 +643,7 @@ export default function QuizPage() {
               placeholder="家長收件電郵"
               className="rounded border px-3 py-2"
             />
-            <input
+          <input
               value={reportName}
               onChange={(e) => setReportName(e.target.value)}
               placeholder="學生姓名（可留空）"
@@ -899,7 +845,7 @@ export default function QuizPage() {
           ← Prev
         </button>
 
-      <div className="text-sm text-gray-600">
+        <div className="text-sm text-gray-600">
           {q.type === "fill"
             ? String(a ?? "").trim()
               ? "已填寫"
