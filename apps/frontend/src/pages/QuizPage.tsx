@@ -398,9 +398,38 @@ export default function QuizPage() {
     if (!reportEmail.trim()) {
       alert("請輸入收件電郵");
       return;
-    }
-    try {
+    }  
+  
       setSending(true);
+    try {
+    const ok = await sendReportEmail({
+      slug,
+      toEmail: reportEmail,
+      studentName: reportName || "學生",
+      score,
+      total,
+      onInfo: (m) => alert(m),
+      onError: (m) => alert(m),
+      onRequireUpgrade: () => {
+        // 付費牆：帶著來源與科目年級跳到方案頁
+    const { subject, grade } = parseSubjectGrade(slug);
+    const q = new URLSearchParams({
+        from: "report",
+        ...(subject ? { subject } : {}),
+        ...(grade ? { grade } : {}),
+      });
+        navigate(`/pricing?${q.toString()}`);
+        },
+      });
+
+      if (ok) {
+        setReportEmail("");
+      // 如要也可清空姓名： setReportName("");
+        }
+      } finally {
+        setSending(false);
+        }
+      }
 
       const detail_rows = questions.map((q, i) => ({
         q: stripBBCode(q.stem),
