@@ -1,53 +1,29 @@
 # apps/backend/app/main.py
 from __future__ import annotations
-
-import os
-import io
-import csv
-import random
-import re
-import stripe
+import os, io, csv, random, re
 from typing import Optional, List, Dict, Any
-
-from fastapi import FastAPI, UploadFile, File, Query, HTTPException
-from fastapi.responses import JSONResponse, PlainTextResponse
-from fastapi.middleware.cors import CORSMiddleware
-# apps/backend/app/main.py
-from fastapi import Header
-from .billing_stripe import router as billing_router
-app.include_router(billing_router)
 
 import boto3
 from botocore.config import Config
+from fastapi import FastAPI, UploadFile, File, Query, HTTPException
+from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.middleware.cors import CORSMiddleware
 
-# =========================
-# App & CORS
-# =========================
+# ✅ 主要路由
+from .routers.report import router as report_router
+from .billing_stripe import router as billing_router
+try:
+    from .entitlements import router as entitlements_router
+except Exception:
+    entitlements_router = None
+
+# =========================================================
+# 基本設定
+# =========================================================
 app = FastAPI(
     title="Study Game API",
     version=os.getenv("APP_VERSION", "0.1.0"),
 )
-
-# ---- ENV ----
-STRIPE_SECRET_KEY    = os.getenv("STRIPE_SECRET_KEY", "")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "")
-
-# ✅ 情況 A：FRONTEND fallback（這三選一）
-FRONTEND = os.getenv("FRONTEND_URL") or os.getenv("FRONTEND_ORIGIN") or "http://localhost:5173"
-
-if STRIPE_SECRET_KEY:
-    stripe.api_key = STRIPE_SECRET_KEY
-
-
-# 以環境變數設定多個允許來源，逗號分隔
-# 例：CORS_ALLOW_ORIGINS="https://study-game-front.onrender.com,https://mypenisblue.com,https://www.mypenisblue.com"
-
-def to_origin(u: str) -> str:
-    m = re.match(r'^(https?://[^/]+)', (u or '').strip())
-    return (m.group(1) if m else u).rstrip('/')
-
-ALLOWED = [to_origin(o) for o in os.getenv("CORS_ALLOW_ORIGINS","").split(",") if o.strip()]
-allow_all = (len(ALLOWED) == 0)
 
 # --- CORS ---
 app.add_middleware(
@@ -58,56 +34,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.post("/api/billing/checkout")
-async def billing_checkout(
-    payload: dict,
-    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
-):
-    # 1) 取得 user_id（沒有就自動產生匿名）
-    user_id = x_user_id or payload.get("user_id")
-    if not user_id:
-        import uuid
-        user_id = f"anon_{uuid.uuid4()}"
+# =========================================================
+# Include Routers
+# =========================================================
+app.include_router(report_router, prefix="/api")
+app.include_router(billing_router, prefix="/api")
+if entitlements_router:
+    app.include_router(entitlements_router, prefix="/api")
 
-    # 2) 解析前端傳來的 plan / urls
-    plan = (payload.get("plan") or "starter").lower()
-    success_url = payload.get("success_url") or f"{FRONTEND}/pricing"
-    cancel_url  = payload.get("cancel_url")  or f"{FRONTEND}/pricing"
-
-    # 3) 對應 Stripe Price（用環境變數）
-    price_ids = {
-        "starter": os.getenv("STRIPE_PRICE_STARTER"),
-        "pro":     os.getenv("STRIPE_PRICE_PRO"),
-    }
-    price_id = price_ids.get(plan) or price_ids["starter"]
-    if not price_id:
-        raise HTTPException(status_code=500, detail="Stripe price not configured")
-
-    if not STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=500, detail="Stripe not configured")
-
-    try:
-        # 4) 建立 Checkout Session（訂閱範例；一次性付款請改 mode="payment"）
-        session = stripe.checkout.Session.create(
-            mode="subscription",
-            line_items=[{"price": price_id, "quantity": 1}],
-            success_url=success_url,
-            cancel_url=cancel_url,
-            client_reference_id=user_id,  # 用來在 webhook 對回你的使用者
-            # 可選：讓 Stripe 自動建立/關聯 customer
-            # customer_email=payload.get("email") or None,
-            # subscription_data={"metadata": {"plan": plan, "uid": user_id}},
-            allow_promotion_codes=True,
-        )
-        # 5) 回傳 url（前端直接跳轉）
-        return {"id": session.id, "url": session.url}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Create session failed: {e}")
-
-
-# =========================
+# =========================================================
 # Health / Version
-# =========================
+# =========================================================
 @app.get("/", response_class=PlainTextResponse)
 def root():
     return "study-game-back OK"
@@ -120,40 +57,9 @@ def health():
 def version():
     return {"version": os.getenv("APP_VERSION", "0.1.0")}
 
-# =========================
-# Include Routers
-#   - /report/* 由 app/routers/report.py 處理
-#   - /api/billing/* 由 app/billing_stripe.py 處理
-# =========================
-try:
-    from .routers.report import router as report_router
-    app.include_router(report_router)
-except Exception as e:
-    print("[WARN] fail to include routers.report:", e)
-
-try:
-    from .billing_stripe import router as billing_router
-    app.include_router(billing_router)
-except Exception as e:
-    print("[WARN] fail to include billing_stripe:", e)
-
-try:
-    from .entitlement_api import router as ent_api
-    app.include_router(ent_api)
-except Exception as e:
-    print("[WARN] fail to include entitlement_api:", e)
-
-try:
-    from .routers.entitlement_api import router as ent_api
-    app.include_router(ent_api)
-except Exception as e:
-    print("[WARN] fail to include entitlement_api:", e)
-
-
-
-# =========================
-# S3 – packs / quiz / upload
-# =========================
+# =========================================================
+# S3: packs / quiz / upload
+# =========================================================
 def need(name: str) -> str:
     v = os.getenv(name)
     if not v:
@@ -193,6 +99,9 @@ def smart_decode(b: bytes) -> str:
             continue
     return b.decode("utf-8", errors="replace")
 
+# =========================================================
+# Upload / Packs / Quiz Endpoints
+# =========================================================
 @app.post("/upload")
 @app.post("/api/upload")
 async def upload_csv(slug: str, file: UploadFile = File(...)):
