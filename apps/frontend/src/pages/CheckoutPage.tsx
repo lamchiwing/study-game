@@ -18,15 +18,25 @@ const API_BASE =
 ----------------------------------------------------------- */
 const VALID_PLANS = new Set(["starter", "pro"]);
 
-type CheckoutPayload =
-  | { plan: "pro"; success_url: string; cancel_url: string }
-  | {
-      plan: "starter";
-      subject: string;
-      grade: string;
-      success_url: string;
-      cancel_url: string;
-    };
+type BaseCheckoutPayload = {
+  success_url: string;
+  cancel_url: string;
+};
+
+type StarterPayload = BaseCheckoutPayload & {
+  plan: "starter";
+  subject: string;
+  grade: string;
+};
+
+type ProPayload = BaseCheckoutPayload & {
+  plan: "pro";
+  /** 可選：多選科目與年級（逗號分隔），沒有就讓後端 fallback 成通用 Pro */
+  subjects_csv?: string;
+  grades_csv?: string;
+};
+
+type CheckoutPayload = StarterPayload | ProPayload;
 
 /* -----------------------------------------------------------
    元件主體
@@ -35,24 +45,30 @@ export default function CheckoutPage() {
   const [sp] = useSearchParams();
 
   const rawPlan = (sp.get("plan") || "starter").toLowerCase();
-  const plan = VALID_PLANS.has(rawPlan) ? (rawPlan as "starter" | "pro") : "starter";
+  const plan: "starter" | "pro" = VALID_PLANS.has(rawPlan)
+    ? (rawPlan as "starter" | "pro")
+    : "starter";
 
   const subject = sp.get("subject") || "chinese";
   const grade = sp.get("grade") || "grade1";
 
+  // 供 Pro 可選多個（例: ?plan=pro&subjects=math,chinese&grades=grade1,grade3）
+  const subjectsCsv = useMemo(() => (sp.get("subjects") || "").trim(), [sp]);
+  const gradesCsv = useMemo(() => (sp.get("grades") || "").trim(), [sp]);
+
   const userId = useMemo(() => {
     let id = localStorage.getItem("uid");
     if (!id) {
-      // 生成穩定的匿名 id（Safari/舊瀏覽器備援）
       const rand = Math.random().toString(36).slice(2);
       const ts = Date.now().toString(36);
-      id = (typeof crypto !== "undefined" && "randomUUID" in crypto)
-        ? crypto.randomUUID()
-        : `anon_${ts}_${rand}`;
+      id =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? (crypto as any).randomUUID()
+          : `anon_${ts}_${rand}`;
       localStorage.setItem("uid", id);
-  }
-  return id;
-}, []);
+    }
+    return id;
+  }, []);
 
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -69,30 +85,22 @@ export default function CheckoutPage() {
     const success = `${window.location.origin}/pricing`;
     const cancel = `${window.location.origin}/pricing`;
 
-    // 從 URL 讀（Pro 用）
-const subjectsCsv = (sp.get("subjects") || "").trim(); // 例: "math,chinese"
-const gradesCsv   = (sp.get("grades")   || "").trim(); // 例: "grade1,grade3"
-
-// 建立要送去後端的 payload
-const body: CheckoutPayload =
-  plan === "starter"
-    ? {
-        plan: "starter",
-        subject,
-        grade,
-        success_url: success,
-        cancel_url: cancel,
-      }
-    : {
-        plan: "pro",
-        // ✅ 新增：把多選傳給後端（可為空，後端會 fallback 成通用 pro）
-        subjects_csv: subjectsCsv || undefined,
-        grades_csv: gradesCsv || undefined,
-        success_url: success,
-        cancel_url: cancel,
-      };
-
-    console.log("Calling checkout", `${API_BASE}/api/billing/checkout`, body);
+    const body: CheckoutPayload =
+      plan === "starter"
+        ? {
+            plan: "starter",
+            subject,
+            grade,
+            success_url: success,
+            cancel_url: cancel,
+          }
+        : {
+            plan: "pro",
+            subjects_csv: subjectsCsv || undefined,
+            grades_csv: gradesCsv || undefined,
+            success_url: success,
+            cancel_url: cancel,
+          };
 
     try {
       const res = await fetch(`${API_BASE}/api/billing/checkout`, {
@@ -110,7 +118,7 @@ const body: CheckoutPayload =
         throw new Error(txt || `HTTP ${res.status}`);
       }
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       const url: string | undefined = data?.url;
 
       if (!url) throw new Error("後端未回傳結帳連結（url）。");
@@ -119,13 +127,12 @@ const body: CheckoutPayload =
       setErr(e?.message || String(e));
       setBusy(false);
     }
-  }, [plan, subject, grade, userId]);
+  }, [API_BASE, plan, subject, grade, subjectsCsv, gradesCsv, userId]);
 
   /* -----------------------------------------------------------
      初始化觸發一次
   ----------------------------------------------------------- */
   useEffect(() => {
-    console.log("Checkout useEffect fired");
     if (!firedRef.current) {
       firedRef.current = true;
       void goCheckout();
@@ -148,17 +155,14 @@ const body: CheckoutPayload =
         {err && (
           <div className="text-red-600">
             無法建立結帳：{err}。你可以{" "}
-            <button
-              className="underline"
-              onClick={goCheckout}
-              disabled={busy}
-            >
+            <button className="underline" onClick={goCheckout} disabled={busy}>
               重試
             </button>
             ，或{" "}
             <Link className="underline" to="/pricing">
               返回方案頁
-            </Link>。
+            </Link>
+            。
           </div>
         )}
       </div>
