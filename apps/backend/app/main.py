@@ -49,13 +49,13 @@ def to_origin(u: str) -> str:
 ALLOWED = [to_origin(o) for o in os.getenv("CORS_ALLOW_ORIGINS","").split(",") if o.strip()]
 allow_all = (len(ALLOWED) == 0)
 
+# --- CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if allow_all else ALLOWED,
-    allow_credentials=not allow_all,
-    allow_methods=["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
-    allow_headers=["Content-Type","Authorization","X-Requested-With","X-User-Id"],
-    max_age=86400,
+    allow_origins=["https://mypenisblue.com", "https://www.mypenisblue.com"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 @app.post("/api/billing/checkout")
