@@ -105,16 +105,40 @@ def smart_decode(b: bytes) -> str:
 @app.post("/upload")
 @app.post("/api/upload")
 async def upload_csv(slug: str, file: UploadFile = File(...)):
+    # 1️⃣ 驗證 slug，只允許 a-z0-9 / _ -
     slug = validate_slug(slug)
+
+    # 2️⃣ 修正符號：確保不會誤被 : 取代
+    slug = slug.replace(":", "/").replace("\\", "/").strip("/")
+
+    # 3️⃣ 讀取檔案內容
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="empty file")
-    key = slug_to_key(slug)
+
+    # 4️⃣ 生成 key（維持有 / 的階層）
+    key = f"packs/{slug}.csv"
+
+    # 5️⃣ 上傳 S3 / R2
     try:
-        s3.put_object(Bucket=S3_BUCKET, Key=key, Body=content, ContentType="text/csv")
+        s3.put_object(
+            Bucket=S3_BUCKET,
+            Key=key,
+            Body=content,
+            ContentType="text/csv"
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"S3 put_object failed: {e}")
-    return {"ok": True, "slug": slug, "key": key, "size": len(content)}
+
+    # 6️⃣ 回傳實際 key
+    return {
+        "ok": True,
+        "slug": slug,
+        "key": key,
+        "url": f"https://{S3_BUCKET}.r2.cloudflarestorage.com/{key}",
+        "size": len(content)
+    }
+
 
 @app.get("/packs")
 @app.get("/api/packs")
