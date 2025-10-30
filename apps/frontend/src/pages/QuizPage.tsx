@@ -3,9 +3,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
-import { sendReportEmail } from "../lib/report";
-import { titleFromSlug } from "../data/titles";
-
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
@@ -262,7 +259,6 @@ function translateSlug(slug: string): string {
     if (!zhGrade && g && gradeMap[g]) zhGrade = gradeMap[g];
   }
 
-  // 美化最後一段作為標題
   const prettyTitle = tail
     .replace(/[-_]+/g, " ")
     .replace(/\b\w/g, (m) => m.toUpperCase());
@@ -313,7 +309,6 @@ export default function QuizPage() {
         const list = (ret?.list ?? []).map(mapRowToQuestion);
         setQuestions(list);
 
-        // 初始化答案陣列
         setAnswers(
           list.map((q) => {
             if (q.type === "mcq") return null;
@@ -404,21 +399,63 @@ export default function QuizPage() {
       alert("請輸入收件電郵");
       return;
     }
-    setSending(true);
-    const ok = await sendReportEmail({
-      slug,
-      toEmail: reportEmail,
-      studentName: reportName || "學生",
-      score,
-      total,
-      onInfo: (m) => alert(m),
-      onError: (m) => alert(m),
-    });
-    setSending(false);
-    if (ok) {
+    try {
+      setSending(true);
+
+      const detail_rows = questions.map((q, i) => ({
+        q: stripBBCode(q.stem),
+        yourAns: formatYourAnswer(q, answers[i]),
+        correct: formatCorrectAnswer(q),
+        ok: isCorrect(q, answers[i]),
+      }));
+
+      const payload = {
+        to_email: reportEmail.trim(),
+        student_name: reportName || "",
+        grade: "",
+        score,
+        total,
+        summary: "",
+        duration_min: undefined,
+        detail_rows,
+      };
+
+      const res = await fetch(
+        `${API_BASE}/api/report/send?slug=${encodeURIComponent(slug)}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-Id": userId || "",
+          },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (res.status === 402) {
+        // 需購買 → 跳到付費頁
+        let msg = "此功能需購買方案";
+        try {
+          const j = await res.json();
+          if (j?.detail) msg = j.detail;
+        } catch {}
+        alert(msg);
+        window.location.href = "/pricing";
+        return;
+      }
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || "寄送失敗");
+      }
+
+      alert("報告已寄出！");
       setReportEmail("");
-      // 可選：清空姓名
-      // setReportName("");
+      // setReportName(""); // 需要也可清空
+    } catch (err: any) {
+      alert(err?.message || "寄送失敗，請稍後再試");
+    } finally {
+      setSending(false);
     }
   }
 
@@ -667,11 +704,9 @@ export default function QuizPage() {
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-            <h1 className="text-2xl font-semibold">
-              {packTitle
-                ? `Quiz：${packTitle}`
-                : `Quiz：${translateSlug(slug)}`}
-            </h1>
+          <h1 className="text-2xl font-semibold">
+            {packTitle ? `Quiz：${packTitle}` : `Quiz：${translateSlug(slug)}`}
+          </h1>
 
           {SHOW_DEBUG && (apiUrl || debug) && (
             <div className="break-all text-xs text-gray-500">
@@ -835,7 +870,7 @@ export default function QuizPage() {
           ← Prev
         </button>
 
-        <div className="text-sm text-gray-600">
+      <div className="text-sm text-gray-600">
           {q.type === "fill"
             ? String(a ?? "").trim()
               ? "已填寫"
