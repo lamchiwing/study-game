@@ -1,4 +1,3 @@
-// apps/frontend/src/pages/PricingPage.tsx
 import { Link, useNavigate } from "react-router-dom";
 import { useMemo, useState } from "react";
 
@@ -64,7 +63,7 @@ export default function PricingPage() {
           <h2 className="mb-2 text-xl font-semibold">Starter</h2>
           <p className="mb-4 text-sm text-gray-600">解鎖「指定針對科目＋年級」，支援家長報告</p>
 
-          {/* ✅ 讓用戶先選科目 + 年級 */}
+          {/* 先選科目 + 年級 */}
           <div className="mb-4 grid grid-cols-1 gap-3">
             <label className="text-sm font-medium">
               選擇科目
@@ -104,16 +103,12 @@ export default function PricingPage() {
 
           <div className="mb-4 text-lg font-bold">HK$48 / 月</div>
 
-          {/* 直接導向結帳（攜帶 subject / grade） */}
           <button
             onClick={goStarter}
             className="inline-block rounded-xl border px-4 py-2 hover:bg-gray-50"
           >
             前往購買
           </button>
-
-          {/* 亦可顯示最終會前往的 URL（debug 用） */}
-          {/* <div className="mt-2 text-xs text-gray-500 break-all">{starterHref}</div> */}
         </div>
 
         {/* Pro */}
@@ -132,9 +127,6 @@ export default function PricingPage() {
           >
             前往購買
           </button>
-          {/* 如將來要做「Pro 可自選兩個年級」，
-              建議加多一個多選 UI，checkout 時先暫存在 localStorage，
-              Webhook 後再讓用戶到 Profile 內確認年級綁定。 */}
         </div>
       </div>
 
