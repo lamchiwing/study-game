@@ -1,17 +1,30 @@
 # apps/backend/requirements.txt
-fastapi>=0.111.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.8.0
-python-multipart>=0.0.6
-boto3>=1.34.0
-requests>=2.31.0
 
-# 資料庫 + ORM
-SQLAlchemy>=2.0
-psycopg[binary]>=3.1
+# Web 基礎
+fastapi>=0.111.0,<1.0
+uvicorn[standard]>=0.30.0,<0.31
 
-# Stripe 支援
-stripe>=9
+# Pydantic v2（與上面 fastapi 相容）
+pydantic>=2.8.0,<3.0
+pydantic-core>=2.20.0,<3.0
 
-# （可選）若要寄信報告用 SendGrid
-sendgrid>=6.10.0
+# 上傳 & 常用
+python-multipart>=0.0.6,<0.0.10
+requests>=2.31.0,<3.0
+
+# 物件儲存（Cloudflare R2 / S3）
+boto3>=1.34.0,<2.0
+botocore>=1.34.0,<2.0
+
+# 資料庫
+SQLAlchemy>=2.0,<3.0
+psycopg[binary]>=3.1,<4.0
+
+# Stripe（新版 API / Webhook 更完整）
+stripe>=10.0.0,<11.0
+
+# （可選）SendGrid SDK（如果你改用官方 SDK；若走 requests 可移除）
+sendgrid>=6.10.0,<7.0
+
+# （可選）環境變數管理
+python-dotenv>=1.0.0,<2.0
