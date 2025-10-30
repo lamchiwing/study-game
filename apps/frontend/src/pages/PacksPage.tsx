@@ -37,9 +37,9 @@ const CUSTOM_ORDER: Record<string, number> = {
   "math/grade1/l": 5,
   "math/grade1/m": 6,
   "math/grade1/h": 7,
-  "Maths/grade1/21-100/L":8
-  "Maths/grade1/21-100/M":9
-  "Maths/grade1/21-100/H":10
+  "Maths/grade1/21-100/L":8,
+  "Maths/grade1/21-100/M":9,
+  "Maths/grade1/21-100/H":10,
 };
 
 // ---------- 可選：暫時標記哪些是付費 ----------
