@@ -1,7 +1,9 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
-// 規整 API Base：去掉引號、尾斜線、以及不小心貼成 https://x/https://x 的情況
+/* =========================================================
+   Utility：清理 API base URL
+========================================================= */
 function normBase(s?: string) {
   let b = (s ?? "").trim();
   b = b.replace(/^['"]|['"]$/g, "");
@@ -9,7 +11,6 @@ function normBase(s?: string) {
   const m = b.match(/^(https?:\/\/[^/]+)(?:\/https?:\/\/[^/]+)?$/);
   return m ? m[1] : b;
 }
-const dedupe = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
 
 function slugify(s: string) {
   return s
@@ -20,63 +21,54 @@ function slugify(s: string) {
     .toLowerCase();
 }
 
+/* =========================================================
+   Upload Page Component
+========================================================= */
 export default function UploadPage() {
-  const [subject, setSubject] = useState("chinese"); // chinese / math / english...
-  const [grade, setGrade] = useState("grade1");      // grade1 ~ grade5
-  const [packName, setPackName] = useState("mixed-colored-demo");
+  const [subject, setSubject] = useState("chinese");
+  const [grade, setGrade] = useState("grade1");
+  const [packName, setPackName] = useState("colors-demo");
   const [file, setFile] = useState<File | null>(null);
 
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [uploadedSlug, setUploadedSlug] = useState<string | null>(null);
 
-  const slug = useMemo(() => {
-    return `${subject}/${grade}/${slugify(packName)}`;
-  }, [subject, grade, packName]);
+  const slug = useMemo(() => `${subject}/${grade}/${slugify(packName)}`, [subject, grade, packName]);
+
+  // === 設定後端 API 基址 ===
+  const API_BASE =
+    normBase(import.meta.env.VITE_API_BASE as string | undefined) ||
+    "https://study-game-back.onrender.com";
 
   async function doUpload() {
-    setStatus("Uploading…");
+    setStatus("正在上載...");
     setError(null);
     setUploadedSlug(null);
 
     if (!file) {
       setStatus(null);
-      setError("請先選擇 CSV 檔。");
+      setError("請先選擇 CSV 檔案。");
       return;
     }
 
-    const base = normBase(import.meta.env.VITE_API_BASE as string | undefined);
-    const direct = "https://study-game-back.onrender.com";
-    const urlCandidates = dedupe([
-      base && `${base}/upload?slug=${encodeURIComponent(slug)}`,
-      base && `${base}/api/upload?slug=${encodeURIComponent(slug)}`,
-      `${direct}/upload?slug=${encodeURIComponent(slug)}`,
-      `${direct}/api/upload?slug=${encodeURIComponent(slug)}`,
-    ]);
-
-    // 用 FormData 上傳 multipart
+    const url = `${API_BASE}/api/upload?slug=${encodeURIComponent(slug)}`;
     const fd = new FormData();
     fd.append("file", file, file.name);
 
-    let lastErr: any = null;
-    for (const url of urlCandidates) {
-      try {
-        const res = await fetch(url, { method: "POST", body: fd });
-        if (!res.ok) {
-          lastErr = new Error(`HTTP ${res.status} @ ${url}`);
-          continue;
-        }
-        const data = await res.json().catch(() => ({}));
-        setStatus("上載成功！");
-        setUploadedSlug(slug);
-        return;
-      } catch (e) {
-        lastErr = e;
-        continue;
+    try {
+      const res = await fetch(url, { method: "POST", body: fd });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(`上載失敗（HTTP ${res.status}）: ${text}`);
       }
+      const data = await res.json();
+      setStatus("✅ 上載成功！");
+      setUploadedSlug(slug);
+    } catch (e: any) {
+      setStatus(null);
+      setError(`上載失敗：${e?.message || e}`);
     }
-    setStatus(null);
-    setError(`上載失敗：${String(lastErr)}`);
   }
 
   return (
@@ -99,7 +91,6 @@ export default function UploadPage() {
             <option value="chinese">Chinese</option>
             <option value="english">English</option>
             <option value="math">Math</option>
-            {/* 需要可自行擴充 */}
           </select>
         </label>
 
@@ -142,12 +133,16 @@ export default function UploadPage() {
         </div>
 
         <div className="flex gap-2">
-          <button onClick={doUpload} className="rounded bg-black px-3 py-2 text-white">
+          <button
+            onClick={doUpload}
+            className="rounded bg-black px-3 py-2 text-white"
+          >
             上載
           </button>
+
           <a
             className="rounded border px-3 py-2"
-            href="sandbox:/mnt/data/mixed-colored-demo.csv"
+            href="/demo/mixed-colored-demo.csv"
             target="_blank"
             rel="noreferrer"
           >
@@ -166,7 +161,7 @@ export default function UploadPage() {
                 題包列表：<Link className="underline" to="/packs">/packs</Link>
               </li>
               <li>
-                直接作答：{" "}
+                直接作答：
                 <Link
                   className="underline"
                   to={`/quiz?slug=${encodeURIComponent(uploadedSlug)}`}
@@ -180,7 +175,7 @@ export default function UploadPage() {
       </div>
 
       <div className="text-sm text-gray-500">
-        小提示：在 iPad 上，點「選擇檔案」可以從「檔案」App 或 iCloud Drive 選 CSV。
+        小提示：在 iPad 上可從「檔案」App 或 iCloud Drive 選 CSV 上傳。
       </div>
     </div>
   );
