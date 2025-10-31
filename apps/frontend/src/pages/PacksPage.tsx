@@ -1,8 +1,6 @@
-// apps/frontend/src/pages/PacksPage.tsx
-import { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { titleFromSlug } from "../data/titles";
-
+import { motion } from "framer-motion";
 
 type Pack = {
   slug: string;
@@ -12,159 +10,171 @@ type Pack = {
   isPaid?: boolean;
 };
 
+// ---------- 中文對照 ----------
+const SUBJECT_MAP: Record<string, string> = {
+  chinese: "中文",
+  math: "數學",
+  english: "英文",
+  general: "常識",
+};
+
+const GRADE_MAP: Record<string, string> = {
+  grade1: "小一",
+  grade2: "小二",
+  grade3: "小三",
+  grade4: "小四",
+  grade5: "小五",
+  grade6: "小六",
+};
+
 // ---------- 中文標題 fallback ----------
 const TITLE_FALLBACK: Record<string, string> = {
-  "chinese/grade1/mixed-chi3-demofixed": "小一｜中文｜混合題（chi3）",
-  "chinese/grade1/mixed-colored-demo": "小一｜中文｜顏色混合示例",
-  "math/grade1/20l": "小一｜數學｜1–20（初階）",
-  "math/grade1/20m": "小一｜數學｜1–20（中階）",
-  "math/grade1/20h": "小一｜數學｜1–20（高階）",
-  "math/grade1/l": "小一｜數學｜基礎（初階）",
-  "math/grade1/m": "小一｜數學｜基礎（中階）",
-  "math/grade1/h": "小一｜數學｜基礎（高階）",
-  "Maths/grade1/21-100/L": "小一｜數學｜21-100（初階）",
-  "Maths/grade1/21-100/M": "小一｜數學｜21-100（中階）",
-  "Maths/grade1/21-100/H": "小一｜數學｜21-100（高階）", 
+  "chinese/grade1/mixed-chi3-demofixed": "混合題（chi3）",
+  "chinese/grade1/mixed-colored-demo": "顏色混合示例",
+  "math/grade1/20l": "1–20（初階）",
+  "math/grade1/20m": "1–20（中階）",
+  "math/grade1/20h": "1–20（高階）",
+  "Maths/grade1/21-100/l": "21–100（初階）",
+  "Maths/grade1/21-100/m": "21–100（中階）",
+  "Maths/grade1/21-100/h": "21–100（高階）",
 };
 
-// ---------- 可選：固定排序 ----------
-const CUSTOM_ORDER: Record<string, number> = {
-  "chinese/grade1/mixed-colored-demo": 0,
-  "chinese/grade1/mixed-chi3-demofixed": 1,
-  "math/grade1/20l": 2,
-  "math/grade1/20m": 3,
-  "math/grade1/20h": 4,
-  "math/grade1/l": 5,
-  "math/grade1/m": 6,
-  "math/grade1/h": 7,
-  "Maths/grade1/21-100/L":8,
-  "Maths/grade1/21-100/M":9,
-  "Maths/grade1/21-100/H":10,
+// ---------- 主題色 ----------
+const SUBJECT_COLOR: Record<string, string> = {
+  chinese: "from-rose-100 to-red-200",
+  math: "from-sky-100 to-blue-200",
+  english: "from-amber-100 to-yellow-200",
+  general: "from-lime-100 to-green-200",
 };
 
-// ---------- 可選：暫時標記哪些是付費 ----------
-const PAID_SLUGS = new Set<string>([
-  // "chinese/grade1/mixed-colored-demo",
-]);
-
-// --- 工具：規整 BASE 並去掉重複貼上 ---
-function normBase(s: string | undefined) {
-  let b = (s ?? "").trim();
-  b = b.replace(/^['"]|['"]$/g, "");
-  b = b.replace(/\/+$/, "");
-  const m = b.match(/^(https?:\/\/[^/]+)(?:\/https?:\/\/[^/]+)?$/);
-  return m ? m[1] : b;
-}
-const dedupe = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
-
-async function fetchFirstOk<T = any>(paths: string[], signal?: AbortSignal): Promise<T> {
-  for (const url of paths) {
-    try {
-      const r = await fetch(url, { signal });
-      if (!r.ok) {
-        if (r.status === 404) continue;
-        throw new Error(`HTTP ${r.status} @ ${url}`);
-      }
-      return await r.json();
-    } catch (e) {
-      if ((e as any)?.name === "AbortError") throw e;
-      continue;
-    }
-  }
-  throw new Error(`All candidates failed/404:\n${paths.join("\n")}`);
-}
-
-// 友善年級文字
-function fmtGrade(g?: string) {
-  const m = /grade\s*(\d+)/i.exec(g || "");
-  if (m) return `小${["一","二","三","四","五","六"][Number(m[1]) - 1] ?? m[1]}`;
-  return g ?? "";
-}
+const API_BASE =
+  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
+  "https://study-game-back.onrender.com";
 
 export default function PacksPage() {
   const [packs, setPacks] = useState<Pack[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState(""); // 🔍 搜尋欄
 
   useEffect(() => {
-    const ac = new AbortController();
-
-    (async () => {
+    async function load() {
       setLoading(true);
-      setError(null);
       try {
-        const base = normBase(import.meta.env.VITE_API_BASE as string | undefined);
-        const direct = "https://study-game-back.onrender.com";
-        const candidates = dedupe([
-          base && `${base}/packs`,
-          base && `${base}/api/packs`,
-          `${direct}/packs`,
-          `${direct}/api/packs`,
-        ]);
-
-        const data = await fetchFirstOk<Pack[] | { packs: Pack[] }>(candidates, ac.signal);
-        const list = Array.isArray(data) ? data : data?.packs ?? [];
-
-        // 可選：排序 + 付費 fallback
-        list.sort((a, b) => {
-          const ra = CUSTOM_ORDER[a.slug] ?? 9999;
-          const rb = CUSTOM_ORDER[b.slug] ?? 9999;
-          return ra - rb || a.slug.localeCompare(b.slug);
-        });
-        for (const it of list) {
-          if (typeof it.isPaid !== "boolean") it.isPaid = PAID_SLUGS.has(it.slug);
-        }
-
-        setPacks(list);
-      } catch (e: any) {
-        if (e?.name !== "AbortError") setError(String(e?.message || e));
+        const res = await fetch(`${API_BASE}/api/packs`);
+        const data = await res.json();
+        setPacks(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.error(err);
+        setPacks([]);
       } finally {
         setLoading(false);
       }
-    })();
-
-    return () => ac.abort();
+    }
+    load();
   }, []);
 
-  if (loading) return <div className="p-8">Loading packs…</div>;
-  if (error) return <div className="p-8 text-red-600">Error: {error}</div>;
-  if (!packs.length) return <div className="p-8">No packs found.</div>;
+  // 🔍 搜尋邏輯
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return packs;
+    return packs.filter((p) => {
+      const subjZh = SUBJECT_MAP[p.subject ?? ""] || "";
+      const gradeZh = GRADE_MAP[p.grade ?? ""] || "";
+      const fullText = `${p.slug} ${subjZh} ${gradeZh} ${p.title}`.toLowerCase();
+      return fullText.includes(q);
+    });
+  }, [packs, query]);
+
+  if (loading) return <div className="p-6 text-center text-gray-500">載入中…</div>;
+  if (!packs.length) return <div className="p-6 text-center">目前沒有題包。</div>;
+
+  // 分層整理：科目 → 年級 → 題包
+  const grouped: Record<string, Record<string, Pack[]>> = {};
+  for (const p of filtered) {
+    const subj = p.subject?.toLowerCase() || "other";
+    const grade = p.grade?.toLowerCase() || "unknown";
+    grouped[subj] ??= {};
+    grouped[subj][grade] ??= [];
+    grouped[subj][grade].push(p);
+  }
 
   return (
-    <div className="p-8">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">練習目錄</h1>
-        <Link to="/pricing" className="rounded-xl border px-3 py-1.5 text-sm hover:bg-gray-50">
-          了解付費方案
+    <div className="p-6 space-y-8">
+      {/* 頂部列 */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 className="text-2xl font-bold text-center sm:text-left">📚 題庫清單</h1>
+        <Link
+          to="/pricing"
+          className="rounded-xl border px-4 py-2 text-sm text-center hover:bg-gray-50"
+        >
+          💎 了解付費方案
         </Link>
       </div>
 
-      <ul className="space-y-2">
-        {packs.map((p) => (
-          <li key={p.slug} className="flex items-center justify-between rounded-lg border p-3 hover:bg-gray-50">
-            <div>
-              <Link to={`/quiz?slug=${encodeURIComponent(p.slug)}`} className="underline">
-                {TITLE_FALLBACK[p.slug] ?? p.title ?? p.slug}
-              </Link>
-              <div className="text-sm text-gray-500">
-                {[p.subject, fmtGrade(p.grade)].filter(Boolean).join(" · ")}
+      {/* 🔍 搜尋欄 */}
+      <div className="max-w-md mx-auto mb-6">
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="搜尋：如『中文 小一』或『21–100』"
+          className="w-full rounded-xl border px-4 py-2 text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+        />
+        {query && (
+          <div className="text-sm text-gray-500 mt-1 text-center">
+            共找到 {filtered.length} 個題包
+          </div>
+        )}
+      </div>
+
+      {/* 顯示各科別 */}
+      {Object.entries(grouped).map(([subject, grades]) => (
+        <div key={subject} className="space-y-6">
+          <h2 className="text-xl font-bold text-gray-800 border-b-2 pb-1">
+            {SUBJECT_MAP[subject] || subject}
+          </h2>
+
+          {Object.entries(grades).map(([grade, list]) => (
+            <div key={grade} className="space-y-3">
+              <h3 className="text-lg font-semibold text-gray-600">
+                {GRADE_MAP[grade] || grade}
+              </h3>
+
+              <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+                {list.map((p: any) => {
+                  const name =
+                    TITLE_FALLBACK[p.slug] || p.title || p.slug.split("/").pop();
+                  const color =
+                    SUBJECT_COLOR[p.subject ?? ""] || "from-gray-100 to-gray-200";
+                  return (
+                    <motion.div
+                      key={p.slug}
+                      whileHover={{ scale: 1.04 }}
+                      whileTap={{ scale: 0.98 }}
+                      className={`rounded-2xl bg-gradient-to-br ${color} p-4 shadow-sm hover:shadow-md transition`}
+                    >
+                      <div className="flex flex-col justify-between h-full">
+                        <div className="text-lg font-bold text-gray-800 mb-2">
+                          {name}
+                        </div>
+                        <div className="text-sm text-gray-600 mb-3">
+                          {SUBJECT_MAP[p.subject ?? ""]}｜{GRADE_MAP[p.grade ?? ""]}
+                        </div>
+                        <Link
+                          to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
+                          className="inline-block rounded-lg bg-black text-white text-center py-1.5 hover:bg-gray-800 transition"
+                        >
+                          開始練習 ▶
+                        </Link>
+                      </div>
+                    </motion.div>
+                  );
+                })}
               </div>
             </div>
-
-            {typeof p.isPaid === "boolean" && (
-              <span
-                className={
-                  "ml-3 rounded-full px-3 py-1 text-xs " +
-                  (p.isPaid ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700")
-                }
-                title={p.isPaid ? "此題包包含付費功能" : "免費題包"}
-              >
-                {p.isPaid ? "付費" : "免費"}
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
+          ))}
+        </div>
+      ))}
     </div>
   );
 }
