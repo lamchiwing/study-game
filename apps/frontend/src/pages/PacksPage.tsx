@@ -63,9 +63,9 @@ const TITLE_FALLBACK_RAW: Record<string, string> = {
   "math/grade1/21-100/m": "21–100（中階）",
   "math/grade1/21-100/h": "21–100（高階）",
   // 兼容你曾用的 "Maths/..." 以及大小寫/冒號
-  "maths/grade1/21-100/l": "21–100（初階）",
-  "maths/grade1/21-100/m": "21–100（中階）",
-  "maths/grade1/21-100/h": "21–100（高階）",
+  "math/grade1/21-100/l": "21–100（初階）",
+  "math/grade1/21-100/m": "21–100（中階）",
+  "math/grade1/21-100/h": "21–100（高階）",
 };
 // 轉成正規化後的映射表
 const TITLE_FALLBACK: Record<string, string> = Object.fromEntries(
