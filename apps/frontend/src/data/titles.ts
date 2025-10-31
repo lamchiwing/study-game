@@ -1,65 +1,127 @@
 // apps/frontend/src/data/titles.ts
 
-/** 將 slug 規整成：全小寫、用 / 作分隔、去掉重複斜線 */
-export function normalizeSlug(raw?: string): string {
-  const s = String(raw || "");
-  return s
-    .replace(/\\/g, "/")        // 反斜線 → 斜線
-    .replace(/:+/g, "/")        // 冒號 → 斜線（你之前上傳造成的情況）
-    .replace(/\/+/g, "/")       // 連續斜線合併
-    .replace(/^\//, "")         // 去頭尾斜線
-    .replace(/\/$/, "")
-    .toLowerCase();
+/** 將任何 slug 規整成統一格式：
+ *  - 小寫
+ *  - 反斜線→斜線、連續斜線壓成單一
+ *  - 去頭尾斜線
+ *  - 同義詞：maths→math、ch→chinese、chi→chinese、cn→chinese、zh→chinese
+ *  - 年級統一為 gradeN（p1/g1/primary1/year1 → grade1）
+ */
+export function normalizeSlug(input?: string): string {
+  let s = String(input ?? "").trim();
+
+  s = s.replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\/|\/$/g, "");
+  s = s.toLowerCase();
+
+  // 拆片段以便逐一標準化
+  const parts = s.split("/").filter(Boolean);
+  const out: string[] = [];
+
+  const subjAlias: Record<string, string> = {
+    maths: "math",
+    mathematics: "math",
+    math: "math",
+    chinese: "chinese",
+    chi: "chinese",
+    ch: "chinese",
+    cn: "chinese",
+    zh: "chinese",
+    eng: "english",
+    en: "english",
+  };
+
+  function toGrade(tok: string): string | "" {
+    let t = tok;
+    for (const pre of ["grade", "g", "p", "primary", "yr", "year"]) {
+      if (t.startsWith(pre)) {
+        t = t.slice(pre.length);
+        break;
+      }
+    }
+    const num = parseInt(t.replace(/\D+/g, ""), 10);
+    return num >= 1 && num <= 6 ? `grade${num}` : "";
+  }
+
+  for (const tokRaw of parts) {
+    const tok = tokRaw.trim();
+    const g = toGrade(tok);
+    if (g) {
+      out.push(g);
+      continue;
+    }
+    if (subjAlias[tok]) {
+      out.push(subjAlias[tok]);
+      continue;
+    }
+    out.push(tok);
+  }
+
+  return out.join("/");
 }
 
-/** 中文標題 fallback – 注意 key 全部用「normalizeSlug 後的字串」 */
-const TITLE_MAP: Record<string, string> = {
-  // 中文
-  [normalizeSlug("chinese/grade1/mixed-chi3-demofixed")]: "混合題（chi3）",
-  [normalizeSlug("chinese/grade1/mixed-colored-demo")]:   "顏色混合示例",
+/** 科目中文對照（接受 alias 或原值） */
+export function subjectZh(subject?: string): string {
+  const s = (subject ?? "").toLowerCase();
+  const key = {
+    maths: "math",
+    mathematics: "math",
+    chi: "chinese",
+    ch: "chinese",
+    cn: "chinese",
+    zh: "chinese",
+    eng: "english",
+    en: "english",
+  }[s] || s;
 
-  // 數學 1–20
-  [normalizeSlug("math/grade1/20l")]: "1–20（初階）",
-  [normalizeSlug("math/grade1/20m")]: "1–20（中階）",
-  [normalizeSlug("math/grade1/20h")]: "1–20（高階）",
+  const map: Record<string, string> = {
+    chinese: "中文",
+    math: "數學",
+    english: "英文",
+    general: "常識",
+  };
+  return map[key] ?? subject ?? "";
+}
 
-  // 數學 21–100（同時支援 Maths / math、大小寫與冒號）
-  [normalizeSlug("Maths/grade1/21-100/L")]: "21–100（初階）",
-  [normalizeSlug("Maths/grade1/21-100/M")]: "21–100（中階）",
-  [normalizeSlug("Maths/grade1/21-100/H")]: "21–100（高階）",
-  [normalizeSlug("math/grade1/21-100/l")]: "21–100（初階）",
-  [normalizeSlug("math/grade1/21-100/m")]: "21–100（中階）",
-  [normalizeSlug("math/grade1/21-100/h")]: "21–100（高階）",
+/** 年級中文（grade1..grade6 → 小一..小六；也接受 p1/g1/year1/primary1） */
+export function gradeZh(g?: string): string {
+  const s = (g ?? "").toLowerCase();
+  let n = 0;
+
+  const m1 = /grade\s*(\d)/.exec(s);
+  if (m1) n = parseInt(m1[1], 10);
+  if (!n) {
+    const m2 = /(p|g|yr|year|primary)\s*(\d)/.exec(s);
+    if (m2) n = parseInt(m2[2], 10);
+  }
+  if (!n) n = parseInt(s.replace(/\D+/g, ""), 10) || 0;
+
+  const zh = ["一", "二", "三", "四", "五", "六"][n - 1];
+  return zh ? `小${zh}` : g ?? "";
+}
+
+/** 中文標題 fallback（先寫原始 key，稍後會做 normalize 映射） */
+const TITLE_FALLBACK_RAW: Record<string, string> = {
+  "chinese/grade1/mixed-chi3-demofixed": "混合題（chi3）",
+  "chinese/grade1/mixed-colored-demo": "顏色混合示例",
+
+  "math/grade1/20l": "1–20（初階）",
+  "math/grade1/20m": "1–20（中階）",
+  "math/grade1/20h": "1–20（高階）",
+
+  // 21–100 三個等級（不論 math 或 maths，上層 normalize 會統一）
+  "math/grade1/21-100/l": "21–100（初階）",
+  "math/grade1/21-100/m": "21–100（中階）",
+  "math/grade1/21-100/h": "21–100（高階）",
+
 };
 
+/** 轉為 normalize 後的查找表 */
+const TITLE_FALLBACK: Record<string, string> = Object.fromEntries(
+  Object.entries(TITLE_FALLBACK_RAW).map(([k, v]) => [normalizeSlug(k), v])
+);
+
+/** 由 slug 取得中文標題（若無對照，回傳 undefined） */
 export function titleFromSlug(slug?: string): string | undefined {
   const key = normalizeSlug(slug);
-  return TITLE_MAP[key];
-}
-
-/** 後備的人性化標題（沒有 CSV title，也沒有 TITLE_MAP 時用） */
-export function prettyFromSlug(slug?: string): string {
-  const s = normalizeSlug(slug);
-  const parts = s.split("/").filter(Boolean);
-  const last = parts[parts.length - 1] || "";
-  return last
-    .replace(/-/g, " ")
-    .replace(/\b\w/g, (m) => m.toUpperCase()); // 首字母大寫
-}
-
-/** 科目/年級中文字 */
-export function zhSubject(sub?: string) {
-  switch ((sub || "").toLowerCase()) {
-    case "chinese": case "cn": case "chi": case "zh":   return "中文";
-    case "math": case "maths": case "mathematics":      return "數學";
-    case "general": case "gs": case "gen":              return "常識";
-    default: return sub || "";
-  }
-}
-export function zhGrade(g?: string) {
-  const m = /grade\s*(\d+)/i.exec(g || "");
-  if (!m) return g || "";
-  const n = Number(m[1]);
-  const map = ["一","二","三","四","五","六"];
-  return n >= 1 && n <= 6 ? `小${map[n - 1]}` : g || "";
+  return TITLE_FALLBACK[key];
 }
