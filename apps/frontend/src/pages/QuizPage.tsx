@@ -680,12 +680,11 @@ export default function QuizPage() {
   const a = answers[idx];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold">Quiz : {niceTitle}</h1>
-            {packTitle ? `Quiz：${packTitle}` : `Quiz：${translateSlug(slug)}`}
-          </h1>
+  <div className="mx-auto max-w-3xl space-y-6 p-6">
+    <div className="flex items-center justify-between">
+      <div>
+        {/* ✅ 單一 H1，內容只放 niceTitle */}
+        <h1 className="text-2xl font-semibold">Quiz：{niceTitle}</h1>
 
           {SHOW_DEBUG && (apiUrl || debug) && (
             <div className="break-all text-xs text-gray-500">
