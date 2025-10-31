@@ -4,6 +4,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
 import { sendReportEmail, parseSubjectGrade } from "../lib/report";
+// 片段：在檔案頂部 imports 補上
+import { titleFromSlug, prettyFromSlug } from "../data/titles";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
@@ -538,6 +540,8 @@ export default function QuizPage() {
      Render
   ========================================================= */
   if (loading) return <div className="p-6">Loading…</div>;
+  
+  const niceTitle = packTitle || titleFromSlug(slug) || prettyFromSlug(slug);
 
   if (!questions.length) {
     return (
@@ -679,7 +683,7 @@ export default function QuizPage() {
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">
+          <h1 className="text-2xl font-semibold">Quiz : {niceTitle}</h1>
             {packTitle ? `Quiz：${packTitle}` : `Quiz：${translateSlug(slug)}`}
           </h1>
 
