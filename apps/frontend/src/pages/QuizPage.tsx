@@ -541,7 +541,8 @@ export default function QuizPage() {
   ========================================================= */
   if (loading) return <div className="p-6">Loading…</div>;
   
-  const niceTitle = packTitle || titleFromSlug(slug) || prettyFromSlug(slug);
+  const niceTitle =
+  packTitle || titleFromSlug(normalizeSlug(slug)) || translateSlug(slug);
 
   if (!questions.length) {
     return (
