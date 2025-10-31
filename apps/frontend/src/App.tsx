@@ -13,11 +13,13 @@ export default function App() {
         <Routes>
           {/* 預設導向 packs */}
           <Route path="/" element={<Navigate to="/packs" replace />} />
-
           <Route path="/packs" element={<PacksPage />} />
           <Route path="/quiz" element={<QuizPage />} />
           <Route path="/pricing" element={<PricingPage />} />
           <Route path="/checkout" element={<CheckoutPage />} />
+          <Route path="/report" element={<ParentReportPage />} />
+          <Route path="/upload" element={<UploadPage />} /> {/* ✅ 新增這行 */}
+
 
           {/* 兜底：未知路徑導回 packs */}
           <Route path="*" element={<Navigate to="/packs" replace />} />
