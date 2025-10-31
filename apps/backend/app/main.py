@@ -76,7 +76,7 @@ s3 = boto3.client(
     aws_access_key_id=S3_ACCESS_KEY,
     aws_secret_access_key=S3_SECRET_KEY,
     region_name=os.getenv("S3_REGION", "auto"),
-    config=Config(s3={"addressing_style": "virtual"}),
+    config=Config(s3={"addressing_style": "path"}),   # ✅ 改這行
 )
 
 PREFIX = "packs/"
