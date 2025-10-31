@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-// 直接使用你在 ../data/titles 內已做 normalize 的工具
+// 使用 ../data/titles.ts 的導出（確保檔案內有 export 這些）
 import { titleFromSlug, subjectZh, gradeZh, normalizeSlug } from "../data/titles";
 
 type Pack = {
@@ -14,34 +14,84 @@ type Pack = {
 };
 
 const SUBJECT_COLOR: Record<string, string> = {
-  chinese: "from-rose-100 to-rose-200",
+  chinese: "from-rose-100 to-red-200",
   math: "from-sky-100 to-blue-200",
   english: "from-amber-100 to-yellow-200",
   general: "from-lime-100 to-green-200",
 };
 
+function normBase(s?: string) {
+  let b = (s ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/, "");
+  const m = b.match(/^(https?:\/\/[^/]+)(?:\/https?:\/\/[^/]+)?$/);
+  return m ? m[1] : b;
+}
 const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
+  normBase(import.meta.env.VITE_API_BASE as string | undefined) ||
   "https://study-game-back.onrender.com";
+
+// 將任何未知資料結構轉成 Pack[]
+function coercePacks(x: any): Pack[] {
+  if (Array.isArray(x)) return x;
+  if (x && Array.isArray(x.packs)) return x.packs;
+  if (x && Array.isArray(x.items)) return x.items;
+  return [];
+}
 
 export default function PacksPage() {
   const [packs, setPacks] = useState<Pack[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
+      setError(null);
       try {
-        // 後端 /api/packs 會回傳 slug/subject/grade/title
-        const r = await fetch(`${API_BASE}/api/packs`);
-        const data = await r.json();
+        const candidates = [
+          `${API_BASE}/api/packs`,
+          `${API_BASE}/packs`,
+          "https://study-game-back.onrender.com/api/packs",
+          "https://study-game-back.onrender.com/packs",
+        ];
+        let data: any = null;
+        let lastErr: any = null;
+        for (const url of candidates) {
+          try {
+            const r = await fetch(url, { credentials: "omit" });
+            if (!r.ok) {
+              lastErr = new Error(`HTTP ${r.status} @ ${url}`);
+              continue;
+            }
+            data = await r.json();
+            break;
+          } catch (e) {
+            lastErr = e;
+            continue;
+          }
+        }
+        if (!data) throw lastErr ?? new Error("No response");
+
+        const list = coercePacks(data)
+          .filter((p) => p && typeof p.slug === "string")
+          .map((p) => {
+            // 標準化 slug，並盡可能補 subject/grade
+            const norm = normalizeSlug(p.slug);
+            const [s, g] = (norm.split("/").filter(Boolean) as string[]).slice(0, 2);
+            return {
+              ...p,
+              slug: norm,
+              subject: p.subject ?? s ?? "",
+              grade: p.grade ?? g ?? "",
+            } as Pack;
+          });
+
         if (!alive) return;
-        setPacks(Array.isArray(data) ? data : data?.packs ?? []);
-      } catch (e) {
-        console.error(e);
+        setPacks(list);
+      } catch (e: any) {
         if (!alive) return;
+        setError(String(e?.message || e));
         setPacks([]);
       } finally {
         if (alive) setLoading(false);
@@ -52,112 +102,119 @@ export default function PacksPage() {
     };
   }, []);
 
-  // 🔍 搜尋（對 slug+中文科目+中文年級+fallback 標題做檢索）
+  // 🔍 搜尋：同時比對 slug/中文科目/中文年級/標題
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return packs;
-
     return packs.filter((p) => {
-      const ns = normalizeSlug(p.slug);
-      const zhTitle = titleFromSlug(ns) || p.title || ns.split("/").pop() || ns;
-      const subj = subjectZh(p.subject || "");
-      const grade = gradeZh(p.grade || "");
-      const hay = `${ns} ${zhTitle} ${subj} ${grade}`.toLowerCase();
-      return hay.includes(q);
+      const subj = subjectZh(p.subject ?? "").toLowerCase();
+      const grd = gradeZh(p.grade ?? "").toLowerCase();
+      const t = (p.title ?? "").toLowerCase();
+      const full = `${p.slug} ${subj} ${grd} ${t}`;
+      return full.includes(q);
     });
   }, [packs, query]);
 
-  if (loading) return <div className="p-6 text-center text-gray-500">載入中…</div>;
-  if (!packs.length) return <div className="p-6 text-center">目前沒有題包。</div>;
-
-  // 分層：科目 -> 年級 -> 題包
+  // 分層：subject -> grade -> packs
   const grouped = useMemo(() => {
-    const g: Record<string, Record<string, Pack[]>> = {};
+    const m: Record<string, Record<string, Pack[]>> = {};
     for (const p of filtered) {
-      const subj = (p.subject || "").toLowerCase();
-      const grade = (p.grade || "").toLowerCase();
-      g[subj] ??= {};
-      g[subj][grade] ??= [];
-      g[subj][grade].push(p);
+      const subj = (p.subject ?? "").toLowerCase();
+      const grd = (p.grade ?? "").toLowerCase();
+      if (!m[subj]) m[subj] = {};
+      if (!m[subj][grd]) m[subj][grd] = [];
+      m[subj][grd].push(p);
     }
-    // 每層做一點排序：grade1..grade6、slug 自然排序
-    for (const subj of Object.keys(g)) {
-      const grades = Object.keys(g[subj]).sort((a, b) => {
-        const na = parseInt(a.replace(/\D+/g, "") || "0", 10);
-        const nb = parseInt(b.replace(/\D+/g, "") || "0", 10);
-        return na - nb;
+    // 每層做一點排序（可依需求調整）
+    Object.keys(m).forEach((s) => {
+      Object.keys(m[s]).forEach((g) => {
+        m[s][g].sort((a, b) => a.slug.localeCompare(b.slug));
       });
-      const sorted: Record<string, Pack[]> = {};
-      for (const gr of grades) {
-        sorted[gr] = g[subj][gr].slice().sort((A, B) =>
-          normalizeSlug(A.slug).localeCompare(normalizeSlug(B.slug))
-        );
-      }
-      g[subj] = sorted;
-    }
-    return g;
+    });
+    return m;
   }, [filtered]);
+
+  if (loading) {
+    return <div className="p-6 text-center text-gray-500">載入中…</div>;
+  }
+  if (error) {
+    return (
+      <div className="p-6">
+        <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-700">
+          讀取題庫失敗：{error}
+        </div>
+      </div>
+    );
+  }
+  if (!packs.length) {
+    return <div className="p-6 text-center">目前沒有題包。</div>;
+  }
 
   return (
     <div className="p-6 space-y-8">
-      {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <h1 className="text-2xl font-bold">📚 題庫清單</h1>
-        <div className="flex gap-2">
-          <Link to="/upload" className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50">
-            上載題包
-          </Link>
-          <Link to="/pricing" className="rounded-xl border px-4 py-2 text-sm hover:bg-gray-50">
-            💎 了解付費方案
-          </Link>
-        </div>
+        <Link to="/pricing" className="rounded-xl border px-3 py-1.5 text-sm hover:bg-gray-50">
+          💎 了解付費方案
+        </Link>
       </div>
 
-      {/* 🔍 Search */}
-      <div className="mx-auto mb-2 max-w-md">
+      {/* 搜尋欄 */}
+      <div className="mx-auto mb-4 max-w-md">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜尋：輸入『中文 小一』或『21–100』"
-          className="w-full rounded-xl border px-4 py-2 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          placeholder="搜尋：如『中文 小一』或『21–100』"
+          className="w-full rounded-xl border px-4 py-2 text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
         />
         {query && (
-          <div className="mt-1 text-center text-sm text-gray-500">共 {filtered.length} 個結果</div>
+          <div className="mt-1 text-center text-sm text-gray-500">
+            共找到 {filtered.length} 個題包
+          </div>
         )}
       </div>
 
-      {/* 科目群組 */}
-      {Object.entries(grouped).map(([subj, gradeMap]) => {
-        const color = SUBJECT_COLOR[subj] || "from-gray-100 to-gray-200";
+      {/* 科目層 */}
+      {Object.entries(grouped).map(([subj, byGrade]) => {
+        const color = SUBJECT_COLOR[subj] ?? "from-gray-100 to-gray-200";
+        const subjName = subjectZh(subj) || subj || "其他";
         return (
-          <section key={subj} className="space-y-5">
-            <h2 className="text-xl font-bold text-gray-800">{subjectZh(subj) || subj}</h2>
+          <section key={subj} className="space-y-4">
+            <h2 className="text-xl font-bold text-gray-800 border-b pb-1">{subjName}</h2>
 
-            {Object.entries(gradeMap).map(([gr, list]) => (
-              <div key={gr} className="space-y-3">
-                <h3 className="text-lg font-semibold text-gray-600">{gradeZh(gr) || gr}</h3>
+            {/* 年級層 */}
+            {Object.entries(byGrade).map(([grd, list]) => (
+              <div key={`${subj}-${grd}`} className="space-y-3">
+                <h3 className="text-lg font-semibold text-gray-600">{gradeZh(grd) || grd || "年級"}</h3>
 
                 <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
                   {list.map((p) => {
-                    const ns = normalizeSlug(p.slug);
-                    const title = titleFromSlug(ns) || p.title || ns.split("/").pop();
+                    const nice =
+                      titleFromSlug(p.slug) ||
+                      p.title ||
+                      // 後備：最後一節 prettify
+                      normalizeSlug(p.slug).split("/").pop()?.replace(/[-_]+/g, " ") ||
+                      p.slug;
+
                     return (
                       <motion.div
                         key={p.slug}
-                        whileHover={{ scale: 1.03 }}
+                        whileHover={{ scale: 1.04 }}
                         whileTap={{ scale: 0.98 }}
-                        className={`rounded-2xl bg-gradient-to-br ${color} p-4 shadow-sm transition hover:shadow-md`}
+                        className={`rounded-2xl bg-gradient-to-br ${color} p-4 shadow-sm hover:shadow-md transition`}
                       >
-                        <div className="mb-2 text-lg font-bold text-gray-800">{title}</div>
-                        <div className="mb-3 text-sm text-gray-600">
-                          {subjectZh(p.subject || "")}｜{gradeZh(p.grade || "")}
+                        <div className="flex h-full flex-col justify-between">
+                          <div className="mb-2 text-lg font-bold text-gray-800">{nice}</div>
+                          <div className="mb-3 text-sm text-gray-600">
+                            {subjectZh(p.subject)}｜{gradeZh(p.grade)}
+                          </div>
+                          <Link
+                            to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
+                            className="inline-block rounded-lg bg-black px-3 py-1.5 text-center text-white hover:bg-gray-800 transition"
+                          >
+                            開始練習 ▶
+                          </Link>
                         </div>
-                        <Link
-                          to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
-                          className="inline-block rounded-lg bg-black px-4 py-1.5 text-center text-white transition hover:bg-gray-800"
-                        >
-                          開始練習 ▶
-                        </Link>
                       </motion.div>
                     );
                   })}
