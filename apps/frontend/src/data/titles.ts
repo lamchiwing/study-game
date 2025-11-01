@@ -1,13 +1,16 @@
 // apps/frontend/src/data/titles.ts
 
 /** 將 slug 規格化：
- *  - 全部用 / 分段（自動移除多餘斜線）
+ *  - 全部用 / 分段（移除多餘斜線）
  *  - 科目同義詞歸一（Maths/Mathematics → math 等）
  *  - 年級歸一（grade01 → grade1；p1/primary1/yr1/year1/g1 → grade1）
  *  - 其他段落轉小寫、連續連字號壓成單一
  */
 export function normalizeSlug(s: string): string {
-  const raw = String(s || "").replace(/\\/g, "/").replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
+  const raw = String(s || "")
+    .replace(/\\/g, "/")
+    .replace(/\/{2,}/g, "/")
+    .replace(/^\/+|\/+$/g, "");
   const parts = raw.split("/").map((p) => p.trim()).filter(Boolean);
 
   // 第 1 段：科目
@@ -23,7 +26,6 @@ export function normalizeSlug(s: string): string {
   // 第 2 段：年級 → grade1..grade6
   if (parts[1]) {
     let g = parts[1].toLowerCase();
-    // 把 p1 / primary1 / yr1 / year1 / g1 / grade01 → grade1
     g = g
       .replace(/^(primary|p|yr|year|g)/i, "grade")
       .replace(/^grade0*([1-6])$/, "grade$1");
@@ -65,21 +67,23 @@ export function gradeZh(grade?: string): string {
 
 /** 中文標題 fallback（key 必須是 normalizeSlug 之後的字串） */
 const TITLE_FALLBACK_RAW: Record<string, string> = {
+  // 中文 demo
   "chinese/grade1/mixed-chi3-demofixed": "混合題（chi3）",
   "chinese/grade1/mixed-colored-demo": "顏色混合示例",
 
+  // 1–20 三個等級
   "math/grade1/20l": "1–20（初階）",
   "math/grade1/20m": "1–20（中階）",
   "math/grade1/20h": "1–20（高階）",
 
-  // 21–100 三個等級（注意 key 用 math，不用 Maths）
+  // 21–100 三個等級 — 支援兩種路徑：21-100l 以及 21-100/l
   "math/grade1/21-100l": "21–100（初階）",
   "math/grade1/21-100m": "21–100（中階）",
   "math/grade1/21-100h": "21–100（高階）",
-
-  "math/grade1/20l": "基礎數學（初階）",
-  "math/grade1/20m": "基礎數學（中階）",
-  "math/grade1/20h": "基礎數學（高階）",
+  
+  "math/grade1/l": "基礎數學（初階）",
+  "math/grade1/m": "基礎數學（中階）",
+  "math/grade1/h": "基礎數學（高階）",
 };
 
 /** 正規化後的查表 */
