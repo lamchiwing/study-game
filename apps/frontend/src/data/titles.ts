@@ -73,9 +73,13 @@ const TITLE_FALLBACK_RAW: Record<string, string> = {
   "math/grade1/20h": "1–20（高階）",
 
   // 21–100 三個等級（注意 key 用 math，不用 Maths）
-  "math/grade1/21-100/l": "21–100（初階）",
-  "math/grade1/21-100/m": "21–100（中階）",
-  "math/grade1/21-100/h": "21–100（高階）",
+  "math/grade1/21-100l": "21–100（初階）",
+  "math/grade1/21-100m": "21–100（中階）",
+  "math/grade1/21-100h": "21–100（高階）",
+
+  "math/grade1/20l": "基礎數學（初階）",
+  "math/grade1/20m": "基礎數學（中階）",
+  "math/grade1/20h": "基礎數學（高階）",
 };
 
 /** 正規化後的查表 */
