@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { titleFromSlug, subjectZh, gradeZh, normalizeSlug } from "../data/titles";
+import { titleFromSlug, subjectZh, gradeZh, normalizeSlug } from "../data/titles";
 
 type Pack = {
   slug: string;
