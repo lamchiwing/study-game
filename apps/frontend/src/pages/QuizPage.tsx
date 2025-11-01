@@ -4,11 +4,16 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
 import { sendReportEmail, parseSubjectGrade } from "../lib/report";
-// 片段：在檔案頂部 imports 補上
-import { titleFromSlug, prettyFromSlug } from "../data/titles";
 
+// 從 titles 匯入 title 與 normalizeSlug（不要再匯入 prettyFromSlug，避免衝突）
+import { titleFromSlug, normalizeSlug } from "../data/titles";
+
+// 本檔內部定義：把 slug 最後一段轉成人看得懂（依 normalizeSlug）
 function prettyFromSlug(s: string) {
-  const last = (normalizeSlug(s) || "").split("/").filter(Boolean).pop() || s;
+  const last = (normalizeSlug(s) || "")
+    .split("/")
+    .filter(Boolean)
+    .pop() || s;
   return last.replace(/[-_]+/g, " ").toLowerCase();
 }
 
@@ -94,6 +99,21 @@ type ApiQuizResponse = {
 ========================================================= */
 function normStr(x: string): string {
   return String(x ?? "").trim().toLowerCase().replace(/\s+/g, "");
+}
+
+function parseList(x?: string): string[] {
+  if (!x) return [];
+  const s = x.trim();
+  if (!s) return [];
+  if (s.startsWith("[")) {
+    try {
+      const arr = JSON.parse(s);
+      return Array.isArray(arr) ? arr.map((v) => String(v)) : [];
+    } catch {
+      return [];
+    }
+  }
+  return s.split("|").map((v) => v.trim());
 }
 
 function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
@@ -216,21 +236,6 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
     explain: r.explain,
     image: r.image,
   };
-}
-
-function parseList(x?: string): string[] {
-  if (!x) return [];
-  const s = x.trim();
-  if (!s) return [];
-  if (s.startsWith("[")) {
-    try {
-      const arr = JSON.parse(s);
-      return Array.isArray(arr) ? arr.map((v) => String(v)) : [];
-    } catch {
-      return [];
-    }
-  }
-  return s.split("|").map((v) => v.trim());
 }
 
 function translateSlug(slug: string): string {
@@ -420,7 +425,6 @@ export default function QuizPage() {
         onInfo: (m) => alert(m),
         onError: (m) => alert(m),
         onRequireUpgrade: () => {
-          // 付費牆：帶著來源與科目年級跳到方案頁
           const { subject, grade } = parseSubjectGrade(slug);
           const q = new URLSearchParams({
             from: "report",
@@ -434,7 +438,6 @@ export default function QuizPage() {
       if (ok) {
         alert("報告已寄出！");
         setReportEmail("");
-        // 如要也可清空姓名： setReportName("");
       }
     } finally {
       setSending(false);
@@ -545,15 +548,18 @@ export default function QuizPage() {
      Render
   ========================================================= */
   if (loading) return <div className="p-6">Loading…</div>;
-  
+
   const niceTitle =
-  packTitle || titleFromSlug(normalizeSlug(slug)) || translateSlug(slug);
+    packTitle ||
+    titleFromSlug(normalizeSlug(slug)) || // 從 titles 的字典取得
+    translateSlug(slug) ||                // 再退回用 slug 推導中文 + pretty
+    prettyFromSlug(slug);                 // 最後保底
 
   if (!questions.length) {
     return (
       <div className="p-6 space-y-3">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold">Quiz: {slug}</h1>
+          <h1 className="text-2xl font-semibold">Quiz：{niceTitle}</h1>
           <Link to="/packs" className="text-sm underline">
             ← Back to Packs
           </Link>
@@ -653,7 +659,7 @@ export default function QuizPage() {
               placeholder="家長收件電郵"
               className="rounded border px-3 py-2"
             />
-          <input
+            <input
               value={reportName}
               onChange={(e) => setReportName(e.target.value)}
               placeholder="學生姓名（可留空）"
@@ -685,24 +691,26 @@ export default function QuizPage() {
   const q = questions[idx]!;
   const a = answers[idx];
   if (!q) {
+    return (
+      <div className="p-6">
+        <div className="rounded border border-red-300 bg-red-50 p-3 text-red-700">
+          無法載入題目。請返回列表重試。
+        </div>
+        <div className="mt-3">
+          <Link to="/packs" className="underline">
+            ← Back to Packs
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="p-6">
-      <div className="rounded border border-red-300 bg-red-50 p-3 text-red-700">
-        無法載入題目。請返回列表重試。
-      </div>
-      <div className="mt-3">
-        <Link to="/packs" className="underline">← Back to Packs</Link>
-      </div>
-    </div>
-  );
-}
-  
-return (
-  <div className="mx-auto max-w-3xl space-y-6 p-6">
-    <div className="flex items-center justify-between">
-      <div>
-        {/* ✅ 單一 H1，內容只放 niceTitle */}
-        <h1 className="text-2xl font-semibold">Quiz：{niceTitle}</h1>
+    <div className="mx-auto max-w-3xl space-y-6 p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          {/* ✅ 單一 H1，內容只放 niceTitle */}
+          <h1 className="text-2xl font-semibold">Quiz：{niceTitle}</h1>
 
           {SHOW_DEBUG && (apiUrl || debug) && (
             <div className="break-all text-xs text-gray-500">
