@@ -13,7 +13,7 @@ const API_BASE =
   "https://study-game-back.onrender.com";
 
 // 想完全隱藏 source/debug 就設 false
-const SHOW_DEBUG = false;
+const SHOW_DEBUG = true;
 
 /* =========================================================
    類型宣告
