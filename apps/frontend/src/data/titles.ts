@@ -1,11 +1,5 @@
 // apps/frontend/src/data/titles.ts
-
-/** 將 slug 規格化：
- *  - 全部用 / 分段（移除多餘斜線）
- *  - 科目同義詞歸一（Maths/Mathematics → math 等）
- *  - 年級歸一（grade01 → grade1；p1/primary1/yr1/year1/g1 → grade1）
- *  - 其他段落轉小寫、連續連字號壓成單一
- */
+// 將 slug 規格化
 export function normalizeSlug(s: string): string {
   const raw = String(s || "")
     .replace(/\\/g, "/")
@@ -23,22 +17,20 @@ export function normalizeSlug(s: string): string {
     else parts[0] = sub;
   }
 
-  // 第 2 段：年級 → grade1..grade6
+  // 第 2 段：年級 → grade1..grade6（僅當 pattern 符合才規範化）
   if (parts[1]) {
-    let g = parts[1].toLowerCase();
-    g = g
-      .replace(/^(primary|p|yr|year|g)/i, "grade")
-      .replace(/^grade0*([1-6])$/, "grade$1");
-    parts[1] = g;
+    const g = parts[1].toLowerCase();
+    const m = g.match(/^(?:grade|g|p|primary|yr|year)[-_ ]*0*([1-6])$/i);
+    parts[1] = m ? `grade${m[1]}` : g; // 已是 grade1 就保持，不會再重複替換
   }
 
   // 其他段全部小寫、-- → -
   for (let i = 2; i < parts.length; i++) {
     parts[i] = parts[i].toLowerCase().replace(/--+/g, "-");
   }
-
   return parts.join("/");
 }
+
 
 /** 科目中文名 */
 export function subjectZh(subj?: string): string {
@@ -51,9 +43,10 @@ export function subjectZh(subj?: string): string {
   return m[(subj || "").toLowerCase()] ?? (subj || "");
 }
 
-/** 年級中文名（接受 grade1 / p1 / primary1 / yr1 / year1 / g1 等） */
 export function gradeZh(grade?: string): string {
-  const g = (grade || "").toLowerCase().replace(/^(primary|p|yr|year|g)/i, "grade");
+  const g = String(grade || "").toLowerCase();
+  const m = g.match(/^(?:grade|g|p|primary|yr|year)[-_ ]*0*([1-6])$/i);
+  const key = m ? `grade${m[1]}` : g;
   const map: Record<string, string> = {
     grade1: "小一",
     grade2: "小二",
@@ -62,8 +55,9 @@ export function gradeZh(grade?: string): string {
     grade5: "小五",
     grade6: "小六",
   };
-  return map[g] ?? grade ?? "";
+  return map[key] ?? grade ?? "";
 }
+
 
 /** 中文標題 fallback（key 必須是 normalizeSlug 之後的字串） */
 const TITLE_FALLBACK_RAW: Record<string, string> = {
