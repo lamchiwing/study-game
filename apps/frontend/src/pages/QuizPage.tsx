@@ -4,17 +4,9 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
 import { sendReportEmail, parseSubjectGrade } from "../lib/report";
+
+// ✅ 只留這一行，不要再在本檔定義 prettyFromSlug
 import { titleFromSlug, prettyFromSlug, normalizeSlug, subjectZh, gradeZh } from "../data/titles";
-
-
-// 本檔內部定義：把 slug 最後一段轉成人看得懂（依 normalizeSlug）
-function prettyFromSlug(s: string) {
-  const last = (normalizeSlug(s) || "")
-    .split("/")
-    .filter(Boolean)
-    .pop() || s;
-  return last.replace(/[-_]+/g, " ").toLowerCase();
-}
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
