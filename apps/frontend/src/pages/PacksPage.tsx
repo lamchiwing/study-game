@@ -47,57 +47,38 @@ export default function PacksPage() {
       setLoading(true);
       setError(null);
       try {
-        const candidates = [
-          `${API_BASE}/api/packs`,
-          `${API_BASE}/packs`,
-          "https://study-game-back.onrender.com/api/packs",
-          "https://study-game-back.onrender.com/packs",
-        ];
-        let data: any = null;
-        let lastErr: any = null;
-        for (const url of candidates) {
-          try {
-            const r = await fetch(url, { credentials: "omit" });
-            if (!r.ok) {
-              lastErr = new Error(`HTTP ${r.status} @ ${url}`);
-              continue;
-            }
-            data = await r.json();
-            break;
-          } catch (e) {
-            lastErr = e;
-          }
-        }
-        if (!data) throw lastErr ?? new Error("No response");
+        const base = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/,'') 
+          || "https://study-game-back.onrender.com";
+        const r = await fetch(`${base}/api/packs`);
+        const raw = await r.json();
 
-        const list = coercePacks(data)
-          .filter((p) => p && typeof p.slug === "string")
-          .map((p) => {
-            const norm = normalizeSlug(p.slug);
-            const [s, g] = norm.split("/").filter(Boolean);
+        const list = (Array.isArray(raw) ? raw : raw?.packs || [])
+          .filter((x: any)=>x?.slug)
+          .map((x: any) => {
+            const norm = normalizeSlug(x.slug);
+            const [s,g] = norm.split("/").filter(Boolean);
             return {
-              ...p,
-              slug: norm,
-              subject: p.subject ?? s ?? "",
-              grade: p.grade ?? g ?? "",
-            } as Pack;
+              ...x,
+              slug: norm,                // ✅ 用正規化後的 slug
+              subject: x.subject ?? s,   // 補 subject
+              grade: x.grade ?? g,       // 補 grade
+            };
           });
 
         if (!alive) return;
         setPacks(list);
-      } catch (e: any) {
+      } catch (e:any) {
         if (!alive) return;
-        setError(String(e?.message || e));
+        setError(String(e?.message||e));
         setPacks([]);
       } finally {
-        if (alive) setLoading(false);
+        alive && setLoading(false);
       }
     })();
-    return () => {
-      alive = false;
-    };
+    return () => { alive = false; };
   }, []);
-
+  
+  
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return packs;
