@@ -570,13 +570,13 @@ export default function QuizPage() {
         <p>No questions.</p>
         {SHOW_DEBUG && (apiUrl || debug) && (
           <div className="break-all text-xs text-gray-500">
-            source: {apiUrl ?? "N/A"}
-            {debug ? <> · debug: {debug}</> : null}
-          </div>
-        )}
-      </div>
-    );
-  }
+            <div><b>source:</b> {apiUrl ?? "N/A"}</div>
+          {debug ? <div><b>debug:</b> {debug}</div> : null}
+        </div>
+      )}
+    </div>
+  );
+}
 
   if (done) {
     const percent = total ? Math.round((score / total) * 100) : 0;
