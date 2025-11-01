@@ -240,9 +240,9 @@ export default function QuizPage() {
   const [sp] = useSearchParams();
   const navigate = useNavigate();
 
-  // 取得並正規化 slug（關鍵：之後全檔都使用這個 slug）
-  const rawSlug = sp.get("slug") || "";
-  const slug = normalizeSlug(rawSlug);
+  // 取得查詢參數並規範化
+  const raw = sp.get("slug") || "";
+  const normSlug = normalizeSlug(raw);
 
   const [loading, setLoading] = useState(true);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
@@ -269,7 +269,7 @@ export default function QuizPage() {
     async function run() {
       setLoading(true);
       try {
-        const url = `${API_BASE}/api/quiz?slug=${encodeURIComponent(slug)}`;
+        const url = `${API_BASE}/api/quiz?slug=${encodeURIComponent(normSlug)}`;
         const r = await fetch(url, { credentials: "omit" });
         const ret = (await r.json()) as ApiQuizResponse;
 
