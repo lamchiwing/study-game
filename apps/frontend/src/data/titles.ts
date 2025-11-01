@@ -1,58 +1,87 @@
 // apps/frontend/src/data/titles.ts
 
-// --- 基礎：科目/年級的中文映射 ---
-export const SUBJECT_ZH: Record<string, string> = {
-  chinese: "中文",
-  math: "數學",
-  english: "英文",
-  general: "常識",
-};
-export const GRADE_ZH: Record<string, string> = {
-  grade1: "小一",
-  grade2: "小二",
-  grade3: "小三",
-  grade4: "小四",
-  grade5: "小五",
-  grade6: "小六",
-};
+// 將 slug 規格化：全部小寫、移除多個斜線、把 "Maths" 轉為 "math"、"grade01"→"grade1"
+export function normalizeSlug(s: string): string {
+  const raw = String(s || "");
+  const parts = raw.split("/").map(p => p.trim()).filter(Boolean);
 
-// --- 正規化工具：把 slug 統一成小寫、用正斜線分隔 ---
-export function normalizeSlug(s?: string): string {
-  const t = String(s ?? "").trim();
-  if (!t) return "";
-  // 把反斜線與連續斜線統一
-  const cleaned = t.replace(/\\/g, "/").replace(/\/+/g, "/");
-  return cleaned.toLowerCase();
+  // 把第一節科目做同義詞歸一
+  if (parts[0]) {
+    const sub = parts[0].toLowerCase();
+    if (["maths", "mathematics"].includes(sub)) parts[0] = "math";
+    else if (["chinese", "cn", "chi", "zh"].includes(sub)) parts[0] = "chinese";
+    else if (["english", "en"].includes(sub)) parts[0] = "english";
+    else if (["general", "gs", "gen"].includes(sub)) parts[0] = "general";
+    else parts[0] = sub;
+  }
+
+  // 年級歸一：grade1..grade6
+  if (parts[1]) {
+    let g = parts[1].toLowerCase();
+    g = g
+      .replace(/^primary|^p|^yr|^year|^g|^grade/i, "grade")
+      .replace(/grade0*([1-6])/, "grade$1");
+    parts[1] = g;
+  }
+
+  // 其餘轉小寫；把多重連字號壓成單一
+  const out = parts
+    .map((p, i) => (i >= 2 ? p.toLowerCase().replace(/--+/g, "-") : p.toLowerCase()))
+    .join("/");
+
+  return out;
 }
 
-// --- 中文標題 fallback（key 要用正規化後的 slug）---
+// 中文科目名
+export function subjectZh(subj?: string): string {
+  const m: Record<string, string> = {
+    chinese: "中文",
+    math: "數學",
+    english: "英文",
+    general: "常識",
+  };
+  return m[(subj || "").toLowerCase()] ?? (subj || "");
+}
+
+// 中文年級
+export function gradeZh(grade?: string): string {
+  const g = (grade || "").toLowerCase().replace(/^primary|^p|^yr|^year|^g/i, "grade");
+  const map: Record<string, string> = {
+    grade1: "小一",
+    grade2: "小二",
+    grade3: "小三",
+    grade4: "小四",
+    grade5: "小五",
+    grade6: "小六",
+  };
+  return map[g] ?? grade ?? "";
+}
+
+/* =======================
+   中文標題 fallback（key 必須是 normalizeSlug 之後的字串）
+   ======================= */
 const TITLE_FALLBACK_RAW: Record<string, string> = {
   "chinese/grade1/mixed-chi3-demofixed": "混合題（chi3）",
   "chinese/grade1/mixed-colored-demo": "顏色混合示例",
   "math/grade1/20l": "1–20（初階）",
   "math/grade1/20m": "1–20（中階）",
   "math/grade1/20h": "1–20（高階）",
-  // 你上傳到 R2 的路徑是 math，不是 Maths，統一用小寫 math
-  "math/grade1/21-100l": "21–100（初階）",
-  "math/grade1/21-100m": "21–100（中階）",
-  "math/grade1/21-100h": "21–100（高階）",
+  // 21–100 三個等級（注意 key 用 math，不用 Maths）
+  "math/grade1/21-100/l": "21–100（初階）",
+  "math/grade1/21-100/m": "21–100（中階）",
+  "math/grade1/21-100/h": "21–100（高階）",
 };
 
-// 產生最終對照表（key 已正規化）
+// 建立正規化後的查表
 const TITLE_FALLBACK: Record<string, string> = Object.fromEntries(
   Object.entries(TITLE_FALLBACK_RAW).map(([k, v]) => [normalizeSlug(k), v])
 );
 
-// --- 由 slug 取顯示用標題（先用 fallback，沒有就 undefined） ---
+// 對外：根據 slug 給出顯示標題
 export function titleFromSlug(slug?: string): string | undefined {
-  return TITLE_FALLBACK[normalizeSlug(slug)];
+  const key = normalizeSlug(slug || "");
+  return TITLE_FALLBACK[key];
 }
 
-// --- 方便在 PacksPage 使用的科目/年級中文函式 ---
-export function subjectZh(subj?: string): string {
-  return SUBJECT_ZH[(subj || "").toLowerCase()] ?? (subj ?? "");
-}
-export function gradeZh(grade?: string): string {
-  const g = (grade || "").toLowerCase();
-  return GRADE_ZH[g] ?? grade ?? "";
-}
+//（可選）導出表，若其他頁要用
+export const TITLE_DICT = TITLE_FALLBACK;
