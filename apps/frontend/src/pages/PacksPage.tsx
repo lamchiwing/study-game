@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-// 使用 ../data/titles.ts 的導出（確保檔案內有 export 這些）
 import { titleFromSlug, subjectZh, gradeZh, normalizeSlug } from "../data/titles";
 
 type Pack = {
@@ -29,7 +28,6 @@ const API_BASE =
   normBase(import.meta.env.VITE_API_BASE as string | undefined) ||
   "https://study-game-back.onrender.com";
 
-// 將任何未知資料結構轉成 Pack[]
 function coercePacks(x: any): Pack[] {
   if (Array.isArray(x)) return x;
   if (x && Array.isArray(x.packs)) return x.packs;
@@ -68,7 +66,6 @@ export default function PacksPage() {
             break;
           } catch (e) {
             lastErr = e;
-            continue;
           }
         }
         if (!data) throw lastErr ?? new Error("No response");
@@ -76,9 +73,8 @@ export default function PacksPage() {
         const list = coercePacks(data)
           .filter((p) => p && typeof p.slug === "string")
           .map((p) => {
-            // 標準化 slug，並盡可能補 subject/grade
             const norm = normalizeSlug(p.slug);
-            const [s, g] = (norm.split("/").filter(Boolean) as string[]).slice(0, 2);
+            const [s, g] = norm.split("/").filter(Boolean);
             return {
               ...p,
               slug: norm,
@@ -102,7 +98,6 @@ export default function PacksPage() {
     };
   }, []);
 
-  // 🔍 搜尋：同時比對 slug/中文科目/中文年級/標題
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return packs;
@@ -115,7 +110,6 @@ export default function PacksPage() {
     });
   }, [packs, query]);
 
-  // 分層：subject -> grade -> packs
   const grouped = useMemo(() => {
     const m: Record<string, Record<string, Pack[]>> = {};
     for (const p of filtered) {
@@ -125,7 +119,6 @@ export default function PacksPage() {
       if (!m[subj][grd]) m[subj][grd] = [];
       m[subj][grd].push(p);
     }
-    // 每層做一點排序（可依需求調整）
     Object.keys(m).forEach((s) => {
       Object.keys(m[s]).forEach((g) => {
         m[s][g].sort((a, b) => a.slug.localeCompare(b.slug));
@@ -134,10 +127,8 @@ export default function PacksPage() {
     return m;
   }, [filtered]);
 
-  if (loading) {
-    return <div className="p-6 text-center text-gray-500">載入中…</div>;
-  }
-  if (error) {
+  if (loading) return <div className="p-6 text-center text-gray-500">載入中…</div>;
+  if (error)
     return (
       <div className="p-6">
         <div className="rounded-lg border border-red-300 bg-red-50 p-4 text-red-700">
@@ -145,10 +136,7 @@ export default function PacksPage() {
         </div>
       </div>
     );
-  }
-  if (!packs.length) {
-    return <div className="p-6 text-center">目前沒有題包。</div>;
-  }
+  if (!packs.length) return <div className="p-6 text-center">目前沒有題包。</div>;
 
   return (
     <div className="p-6 space-y-8">
@@ -192,7 +180,6 @@ export default function PacksPage() {
                     const nice =
                       titleFromSlug(p.slug) ||
                       p.title ||
-                      // 後備：最後一節 prettify
                       normalizeSlug(p.slug).split("/").pop()?.replace(/[-_]+/g, " ") ||
                       p.slug;
 
