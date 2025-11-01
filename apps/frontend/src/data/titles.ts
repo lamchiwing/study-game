@@ -110,7 +110,7 @@ const TITLE_FALLBACK_RAW: Record<string, string> = {
 
   "math/grade1/h": "基礎數學（高階）",
   // 21–100 三個等級（不論 math 或 maths，上層 normalize 會統一）
-  "math/grade1/21-100/l": "21–100（初階）",
+  "math/grade1/21-100l": "21–100（初階）",
   "math/grade1/21-100/m": "21–100（中階）",
   "math/grade1/21-100/h": "21–100（高階）",
 
