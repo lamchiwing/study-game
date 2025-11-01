@@ -5,8 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
 import { sendReportEmail, parseSubjectGrade } from "../lib/report";
 
-// ✅ 只留這一行，不要再在本檔定義 prettyFromSlug
-import { titleFromSlug, prettyFromSlug, normalizeSlug, subjectZh, gradeZh } from "../data/titles";
+import { titleFromSlug, normalizeSlug, subjectZh, gradeZh } from "../data/titles";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
@@ -298,12 +297,15 @@ export default function QuizPage() {
   const userId = useMemo(() => localStorage.getItem("uid") || "", []);
 
   // 載入題目
+  const raw = sp.get("slug") || "";
+  const normSlug = normalizeSlug(raw);      // ✅ 關鍵
+
   useEffect(() => {
     let alive = true;
     async function run() {
       setLoading(true);
       try {
-        const url = `${API_BASE}/api/quiz?slug=${encodeURIComponent(slug)}`;
+        const url = `${API_BASE}/api/quiz?slug=${encodeURIComponent(normSlug)}`; // ✅ 用 normSlug
         const r = await fetch(url, { credentials: "omit" });
         const ret = (await r.json()) as ApiQuizResponse;
 
@@ -311,18 +313,16 @@ export default function QuizPage() {
         setDebug(ret?.debug || null);
         setPackTitle(ret?.title || "");
 
-        const list = Array.isArray(ret?.list) ? ret.list.map(mapRowToQuestion) : [];
-
-
-        setAnswers(
-          list.map((q) => {
-            if (q.type === "mcq") return null;
-            if (q.type === "tf") return null;
-            if (q.type === "fill") return "";
-            if (q.type === "match") return Array((q as QMatch).left.length).fill(null);
-            return null;
-          })
-        );
+        const list = Array.isArray(ret?.list) ? ret.list.map(mapRowToQuestion) : []; // ✅
+        setQuestions(list);
+  
+        setAnswers(list.map((q) => {
+          if (q.type === "mcq" || q.type === "tf") return null;
+          if (q.type === "tf") return null;
+          if (q.type === "fill") return "";
+          if (q.type === "match") return Array((q as any).left.length).fill(null);
+          return null;
+        }));
         setIdx(0);
         setDone(false);
       } catch (e) {
@@ -330,14 +330,13 @@ export default function QuizPage() {
         setQuestions([]);
         setAnswers([]);
       } finally {
-        if (alive) setLoading(false);
+        alive && setLoading(false);
       }
     }
-    if (slug) run();
-    return () => {
-      alive = false;
-    };
-  }, [slug]);
+    if (normSlug) run();
+    return () => { alive = false; };
+  }, [normSlug]);
+
 
   // 分數
   const score = useMemo(() => {
