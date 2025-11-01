@@ -151,6 +151,59 @@ export default function PacksPage() {
           <section key={subj} className="space-y-4">
             <h2 className="text-xl font-bold text-gray-800 border-b pb-1">{subjName}</h2>
 
+      {/* 年級層 */}
+      {Object.entries(byGrade).map(([grd, list]) => (
+         <div key={`${subj}-${grd}`} className="space-y-3">
+           <h3 className="text-lg font-semibold text-gray-600">
+             {gradeZh(grd) || grd || "年級"}
+           </h3>
+
+           <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+            {list.map((p) => {
+              // 先標準化 slug
+              const key = normalizeSlug(p.slug || "");
+              const parts = key.split("/").filter(Boolean);
+              const subjFromSlug = parts[0] || "";
+              const gradeFromSlug = parts[1] || "";
+
+             // 顯示名稱：fallback → CSV title → 最後一段 prettify → 原始 slug
+              const nice =
+                titleFromSlug(key) ||
+                (p.title || "").trim() ||
+                (parts[parts.length - 1] || "")
+                  .replace(/[-_]+/g, " ")
+                  .replace(/\b\w/g, (m) => m.toUpperCase()) ||
+                p.slug;
+
+              return (
+                <motion.div
+                  key={p.slug}
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.98 }}
+                  className={`rounded-2xl bg-gradient-to-br ${color} p-4 shadow-sm hover:shadow-md transition`}
+              >
+                  <div className="flex h-full flex-col justify-between">
+                    <div className="mb-2 text-lg font-bold text-gray-800">{nice}</div>
+
+                  <div className="mb-3 text-sm text-gray-600">
+                    {subjectZh(p.subject || subjFromSlug)}｜{gradeZh(p.grade || gradeFromSlug)}
+                  </div>
+
+                  <Link
+                    // 用 normalize 後的 slug 帶去 Quiz，避免路徑不一致
+                    to={`/quiz?slug=${encodeURIComponent(key)}`}
+                    className="inline-block rounded-lg bg-black px-3 py-1.5 text-center text-white hover:bg-gray-800 transition"
+                  >
+                    開始練習 ▶
+                  </Link>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
+      </div>
+    ))}
+
             {/* 年級層 */}
             {Object.entries(byGrade).map(([grd, list]) => (
               <div key={`${subj}-${grd}`} className="space-y-3">
