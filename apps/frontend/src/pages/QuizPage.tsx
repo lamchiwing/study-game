@@ -4,8 +4,13 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
 import { sendReportEmail, parseSubjectGrade } from "../lib/report";
-
-import { titleFromSlug, normalizeSlug, subjectZh, gradeZh } from "../data/titles";
+import {
+  titleFromSlug,
+  normalizeSlug,
+  subjectZh,
+  gradeZh,
+  prettyFromSlug,
+} from "../data/titles";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
@@ -228,54 +233,16 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
   };
 }
 
-function translateSlug(slug: string): string {
-  const parts = (slug || "").split("/").map(s => s.trim().toLowerCase()).filter(Boolean);
-
-  const subjectAlias: Record<string, string> = {
-    chinese: "中文", cn: "中文", chi: "中文", zh: "中文",
-    math: "數學", maths: "數學", mathematics: "數學",
-    general: "常識", gen: "常識", gs: "常識",
-  };
-
-  // 轉成 grade1…grade6
-  function toGradeToken(tok: string): string {
-    let t = tok;
-    for (const pre of ["grade", "g", "p", "primary", "yr", "year"]) {
-      if (t.startsWith(pre)) { t = t.slice(pre.length); break; }
-    }
-    const n = parseInt(t.replace(/[^0-9]/g, ""), 10);
-    return n >= 1 && n <= 6 ? `grade${n}` : "";
-  }
-
-  const gradeMap: Record<string, string> = {
-    grade1: "小一", grade2: "小二", grade3: "小三",
-    grade4: "小四", grade5: "小五", grade6: "小六",
-  };
-
-  let zhSubject = "";
-  let zhGrade = "";
-  let tail = parts[parts.length - 1] || "";
-
-  for (const tok of parts) {
-    if (!zhSubject && subjectAlias[tok]) zhSubject = subjectAlias[tok];
-    const g = toGradeToken(tok);
-    if (!zhGrade && g && gradeMap[g]) zhGrade = gradeMap[g];
-  }
-
-  const prettyTitle = tail
-    .replace(/[-_]+/g, " ")
-    .replace(/\b\w/g, (m) => m.toUpperCase());
-
-  return [zhSubject, zhGrade, prettyTitle].filter(Boolean).join(" · ");
-}
-
 /* =========================================================
    組件
 ========================================================= */
 export default function QuizPage() {
   const [sp] = useSearchParams();
   const navigate = useNavigate();
-  const slug = sp.get("slug") || "";
+
+  // 取得並正規化 slug（關鍵：之後全檔都使用這個 slug）
+  const rawSlug = sp.get("slug") || "";
+  const slug = normalizeSlug(rawSlug);
 
   const [loading, setLoading] = useState(true);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
@@ -297,15 +264,12 @@ export default function QuizPage() {
   const userId = useMemo(() => localStorage.getItem("uid") || "", []);
 
   // 載入題目
-  const raw = sp.get("slug") || "";
-  const normSlug = normalizeSlug(raw);      // ✅ 關鍵
-
   useEffect(() => {
     let alive = true;
     async function run() {
       setLoading(true);
       try {
-        const url = `${API_BASE}/api/quiz?slug=${encodeURIComponent(normSlug)}`; // ✅ 用 normSlug
+        const url = `${API_BASE}/api/quiz?slug=${encodeURIComponent(slug)}`;
         const r = await fetch(url, { credentials: "omit" });
         const ret = (await r.json()) as ApiQuizResponse;
 
@@ -313,16 +277,18 @@ export default function QuizPage() {
         setDebug(ret?.debug || null);
         setPackTitle(ret?.title || "");
 
-        const list = Array.isArray(ret?.list) ? ret.list.map(mapRowToQuestion) : []; // ✅
+        const list = Array.isArray(ret?.list) ? ret.list.map(mapRowToQuestion) : [];
         setQuestions(list);
-  
-        setAnswers(list.map((q) => {
-          if (q.type === "mcq" || q.type === "tf") return null;
-          if (q.type === "tf") return null;
-          if (q.type === "fill") return "";
-          if (q.type === "match") return Array((q as any).left.length).fill(null);
-          return null;
-        }));
+
+        setAnswers(
+          list.map((q) => {
+            if (q.type === "mcq") return null;
+            if (q.type === "tf") return null;
+            if (q.type === "fill") return "";
+            if (q.type === "match") return Array((q as QMatch).left.length).fill(null);
+            return null;
+          })
+        );
         setIdx(0);
         setDone(false);
       } catch (e) {
@@ -330,13 +296,14 @@ export default function QuizPage() {
         setQuestions([]);
         setAnswers([]);
       } finally {
-        alive && setLoading(false);
+        if (alive) setLoading(false);
       }
     }
-    if (normSlug) run();
-    return () => { alive = false; };
-  }, [normSlug]);
-
+    if (slug) run();
+    return () => {
+      alive = false;
+    };
+  }, [slug]);
 
   // 分數
   const score = useMemo(() => {
@@ -407,7 +374,7 @@ export default function QuizPage() {
     setSending(true);
     try {
       const ok = await sendReportEmail({
-        slug,
+        slug, // 使用正規化後的 slug
         toEmail: reportEmail,
         studentName: reportName || "學生",
         score,
@@ -540,12 +507,14 @@ export default function QuizPage() {
   if (loading) return <div className="p-6">Loading…</div>;
 
   const niceTitle =
-  (packTitle && packTitle.trim()) ||
-  titleFromSlug(normalizeSlug(slug)) ||
-  [subjectZh(slug.split("/")[0]), gradeZh(slug.split("/")[1]), prettyFromSlug(slug)]
-    .filter(Boolean)
-    .join(" · ");
-
+    // 1) 若 CSV 內有 title 欄位，最優先
+    (packTitle && packTitle.trim()) ||
+    // 2) 其次：titles.ts 裡的中文 fallback
+    titleFromSlug(slug) ||
+    // 3) 最後：用 slug 推出「中文科目 · 中文年級 · prettified 名稱」
+    [subjectZh(slug.split("/")[0]), gradeZh(slug.split("/")[1]), prettyFromSlug(slug)]
+      .filter(Boolean)
+      .join(" · ");
 
   if (!questions.length) {
     return (
@@ -559,13 +528,19 @@ export default function QuizPage() {
         <p>No questions.</p>
         {SHOW_DEBUG && (apiUrl || debug) && (
           <div className="break-all text-xs text-gray-500">
-            <div><b>source:</b> {apiUrl ?? "N/A"}</div>
-          {debug ? <div><b>debug:</b> {debug}</div> : null}
-        </div>
-      )}
-    </div>
-  );
-}
+            <div>
+              <b>source:</b> {apiUrl ?? "N/A"}
+            </div>
+            {debug ? (
+              <div>
+                <b>debug:</b> {debug}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (done) {
     const percent = total ? Math.round((score / total) * 100) : 0;
@@ -629,7 +604,9 @@ export default function QuizPage() {
                 <div className="mb-1 text-sm text-gray-500">Q{i + 1}</div>
                 <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
 
-                <div className="text-sm">你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}</div>
+                <div className="text-sm">
+                  你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}
+                </div>
 
                 {!ok && <div className="mt-2 text-sm">正確答案： {formatCorrectAnswer(q)}</div>}
 
