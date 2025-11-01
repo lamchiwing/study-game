@@ -4,9 +4,8 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { renderContent, stripBBCode } from "../lib/bbcode";
 import { sendReportEmail, parseSubjectGrade } from "../lib/report";
+import { titleFromSlug, prettyFromSlug, normalizeSlug, subjectZh, gradeZh } from "../data/titles";
 
-// 從 titles 匯入 title 與 normalizeSlug（不要再匯入 prettyFromSlug，避免衝突）
-import { titleFromSlug, normalizeSlug } from "../data/titles";
 
 // 本檔內部定義：把 slug 最後一段轉成人看得懂（依 normalizeSlug）
 function prettyFromSlug(s: string) {
