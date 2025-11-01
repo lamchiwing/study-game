@@ -404,8 +404,9 @@ export default function QuizPage() {
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
   const prevQ = () => idx > 0 && setIdx(idx - 1);
   const restart = () => {
+
     setAnswers(
-      questions.map((q) => {
+      list.map((q) => {
         if (q.type === "mcq") return null;
         if (q.type === "tf") return null;
         if (q.type === "fill") return "";
@@ -413,6 +414,7 @@ export default function QuizPage() {
         return null;
       })
     );
+
     setIdx(0);
     setDone(false);
   };
