@@ -541,14 +541,12 @@ export default function QuizPage() {
   if (loading) return <div className="p-6">Loading…</div>;
 
   const niceTitle =
-    // 1) 若 CSV 內有 title 欄位，最優先
-    (packTitle && packTitle.trim()) ||
-    // 2) 其次：titles.ts 裡的中文 fallback
-    titleFromSlug(normalizeSlug(slug)) ||
-    // 3) 最後：用 slug 推出「中文科目 · 中文年級 · prettified 名稱」
-    [subjectZh(slug.split("/")[0]), gradeZh(slug.split("/")[1]), prettyFromSlug(slug)]
-      .filter(Boolean)
-      .join(" · ");
+  (packTitle && packTitle.trim()) ||
+  titleFromSlug(normalizeSlug(slug)) ||
+  [subjectZh(slug.split("/")[0]), gradeZh(slug.split("/")[1]), prettyFromSlug(slug)]
+    .filter(Boolean)
+    .join(" · ");
+
 
   if (!questions.length) {
     return (
