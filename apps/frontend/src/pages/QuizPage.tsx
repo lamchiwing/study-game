@@ -7,6 +7,11 @@ import { sendReportEmail, parseSubjectGrade } from "../lib/report";
 // 片段：在檔案頂部 imports 補上
 import { titleFromSlug, prettyFromSlug } from "../data/titles";
 
+function prettyFromSlug(s: string) {
+  const last = (normalizeSlug(s) || "").split("/").filter(Boolean).pop() || s;
+  return last.replace(/[-_]+/g, " ").toLowerCase();
+}
+
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
   "https://study-game-back.onrender.com";
@@ -679,8 +684,20 @@ export default function QuizPage() {
   // 題目畫面
   const q = questions[idx]!;
   const a = answers[idx];
-
+  if (!q) {
   return (
+    <div className="p-6">
+      <div className="rounded border border-red-300 bg-red-50 p-3 text-red-700">
+        無法載入題目。請返回列表重試。
+      </div>
+      <div className="mt-3">
+        <Link to="/packs" className="underline">← Back to Packs</Link>
+      </div>
+    </div>
+  );
+}
+  
+return (
   <div className="mx-auto max-w-3xl space-y-6 p-6">
     <div className="flex items-center justify-between">
       <div>
