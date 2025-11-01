@@ -311,8 +311,8 @@ export default function QuizPage() {
         setDebug(ret?.debug || null);
         setPackTitle(ret?.title || "");
 
-        const list = (ret?.list ?? []).map(mapRowToQuestion);
-        setQuestions(list);
+        const list = Array.isArray(ret?.list) ? ret.list.map(mapRowToQuestion) : [];
+
 
         setAnswers(
           list.map((q) => {
