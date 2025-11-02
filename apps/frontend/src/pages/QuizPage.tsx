@@ -16,12 +16,9 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
   "https://study-game-back.onrender.com";
 
-// 想完全隱藏 source/debug 就設 false
 const SHOW_DEBUG = true;
 
-/* =========================================================
-   類型宣告
-========================================================= */
+/* ======================= Types ======================= */
 type QMCQ = {
   id?: string;
   type: "mcq";
@@ -89,9 +86,7 @@ type ApiQuizResponse = {
   debug?: string;
 };
 
-/* =========================================================
-   工具
-========================================================= */
+/* ======================= Utils ======================= */
 function normStr(x: string): string {
   return String(x ?? "").trim().toLowerCase().replace(/\s+/g, "");
 }
@@ -233,14 +228,12 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
   };
 }
 
-/* =========================================================
-   組件
-========================================================= */
+/* ======================= Component ======================= */
 export default function QuizPage() {
   const [sp] = useSearchParams();
   const navigate = useNavigate();
 
-  // 取得查詢參數並規範化
+  // ✅ 唯一的 slug 來源：規範化後的 normSlug
   const raw = sp.get("slug") || "";
   const normSlug = normalizeSlug(raw);
 
@@ -255,15 +248,9 @@ export default function QuizPage() {
   const [done, setDone] = useState(false);
   const [popPlusOne, setPopPlusOne] = useState(false);
 
-  // 報告寄送欄位
-  const [reportEmail, setReportEmail] = useState("");
-  const [reportName, setReportName] = useState("");
-  const [sending, setSending] = useState(false);
-
-  // 取得 UserId（示例：從 localStorage）
   const userId = useMemo(() => localStorage.getItem("uid") || "", []);
 
-  // 載入題目
+  // 取題
   useEffect(() => {
     let alive = true;
     async function run() {
@@ -299,11 +286,11 @@ export default function QuizPage() {
         if (alive) setLoading(false);
       }
     }
-    if (slug) run();
+    if (normSlug) run();
     return () => {
       alive = false;
     };
-  }, [slug]);
+  }, [normSlug]);
 
   // 分數
   const score = useMemo(() => {
@@ -316,7 +303,7 @@ export default function QuizPage() {
 
   const total = questions.length;
 
-  // 互動：作答
+  // 作答
   function pickMCQ(i: number) {
     setAnswers((prev) => {
       const cur = prev[idx];
@@ -374,7 +361,7 @@ export default function QuizPage() {
     setSending(true);
     try {
       const ok = await sendReportEmail({
-        slug, // 使用正規化後的 slug
+        slug: normSlug, // ✅ 使用正規化 slug
         toEmail: reportEmail,
         studentName: reportName || "學生",
         score,
@@ -382,7 +369,7 @@ export default function QuizPage() {
         onInfo: (m) => alert(m),
         onError: (m) => alert(m),
         onRequireUpgrade: () => {
-          const { subject, grade } = parseSubjectGrade(slug);
+          const { subject, grade } = parseSubjectGrade(normSlug);
           const q = new URLSearchParams({
             from: "report",
             ...(subject ? { subject } : {}),
@@ -403,10 +390,10 @@ export default function QuizPage() {
 
   const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
   const prevQ = () => idx > 0 && setIdx(idx - 1);
-  const restart = () => {
 
+  const restart = () => {
     setAnswers(
-      list.map((q) => {
+      questions.map((q) => {
         if (q.type === "mcq") return null;
         if (q.type === "tf") return null;
         if (q.type === "fill") return "";
@@ -414,12 +401,11 @@ export default function QuizPage() {
         return null;
       })
     );
-
     setIdx(0);
     setDone(false);
   };
 
-  // 判分 & 顯示文字
+  // 判分
   function isCorrect(q: Question, a: any): boolean {
     if (q.type === "mcq") {
       if (a == null) return false;
@@ -442,16 +428,16 @@ export default function QuizPage() {
     if (q.type === "fill") {
       const t = normStr(String(a ?? ""));
       if (!t) return false;
-      return q.acceptable.some((acc) => normStr(acc) === t);
+      return (q as QFill).acceptable.some((acc) => normStr(acc) === t);
     }
 
     // match
     const arr = Array.isArray(a) ? a : [];
-    if (arr.length !== q.left.length) return false;
-    for (let i = 0; i < q.left.length; i++) {
+    if (arr.length !== (q as QMatch).left.length) return false;
+    for (let i = 0; i < (q as QMatch).left.length; i++) {
       const ri = arr[i];
       if (ri == null) return false;
-      if (ri !== q.answerMap[i]) return false;
+      if (ri !== (q as QMatch).answerMap[i]) return false;
     }
     return true;
   }
@@ -472,10 +458,10 @@ export default function QuizPage() {
     }
     // match
     const arr = Array.isArray(a) ? a : [];
-    return q.left
+    return (q as QMatch).left
       .map((L, li) => {
         const ri = arr[li];
-        const R = ri != null ? q.right[ri] : "—";
+        const R = ri != null ? (q as QMatch).right[ri] : "—";
         return `${stripBBCode(L)} → ${stripBBCode(R)}`;
       })
       .join(" | ");
@@ -495,27 +481,24 @@ export default function QuizPage() {
       return q.answerBool ? "True" : "False";
     }
     if (q.type === "fill") {
-      return q.acceptable.join(" | ");
+      return (q as QFill).acceptable.join(" | ");
     }
     // match
-    return q.left
-      .map((L, li) => `${stripBBCode(L)} → ${stripBBCode(q.right[q.answerMap[li]])}`)
+    return (q as QMatch).left
+      .map((L, li) => `${stripBBCode(L)} → ${stripBBCode((q as QMatch).right[(q as QMatch).answerMap[li]])}`)
       .join(" | ");
   }
 
-  /* =========================================================
-     Render
-  ========================================================= */
+  /* ======================= Render ======================= */
   if (loading) return <div className="p-6">Loading…</div>;
 
   const parts = normSlug.split("/");
   const niceTitle =
     (packTitle && packTitle.trim()) ||
     titleFromSlug(normSlug) ||
-    [subjectZh(parts[0]), gradeZh(parts[1]), (parts.at(-1) || "").replace(/[-_]+/g, " ").replace(/\b\w/g, c => c.toUpperCase())]
+    [subjectZh(parts[0]), gradeZh(parts[1]), prettyFromSlug(normSlug)]
       .filter(Boolean)
       .join(" · ");
-
 
   if (!questions.length) {
     return (
@@ -529,14 +512,8 @@ export default function QuizPage() {
         <p>No questions.</p>
         {SHOW_DEBUG && (apiUrl || debug) && (
           <div className="break-all text-xs text-gray-500">
-            <div>
-              <b>source:</b> {apiUrl ?? "N/A"}
-            </div>
-            {debug ? (
-              <div>
-                <b>debug:</b> {debug}
-              </div>
-            ) : null}
+            <div><b>source:</b> {apiUrl ?? "N/A"}</div>
+            {debug ? <div><b>debug:</b> {debug}</div> : null}
           </div>
         )}
       </div>
@@ -547,7 +524,7 @@ export default function QuizPage() {
     const percent = total ? Math.round((score / total) * 100) : 0;
     return (
       <div className="mx-auto max-w-3xl space-y-5 p-6">
-        {/* 彩紙 */}
+        {/* confetti */}
         <div className="relative h-10">
           <AnimatePresence>
             {Array.from({ length: 12 }).map((_, i) => (
@@ -591,7 +568,7 @@ export default function QuizPage() {
           Score: <span className="font-semibold">{score}</span> / {total} ({percent}%)
         </div>
 
-        {/* 詳解清單 */}
+        {/* 詳解 */}
         <div className="space-y-3">
           {questions.map((q, i) => {
             const ok = isCorrect(q, answers[i]);
@@ -605,9 +582,7 @@ export default function QuizPage() {
                 <div className="mb-1 text-sm text-gray-500">Q{i + 1}</div>
                 <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
 
-                <div className="text-sm">
-                  你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}
-                </div>
+                <div className="text-sm">你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}</div>
 
                 {!ok && <div className="mt-2 text-sm">正確答案： {formatCorrectAnswer(q)}</div>}
 
@@ -619,7 +594,7 @@ export default function QuizPage() {
           })}
         </div>
 
-        {/* 寄送報告區塊 */}
+        {/* 寄送報告 */}
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <input
@@ -660,6 +635,7 @@ export default function QuizPage() {
   // 題目畫面
   const q = questions[idx]!;
   const a = answers[idx];
+
   if (!q) {
     return (
       <div className="p-6">
@@ -679,7 +655,6 @@ export default function QuizPage() {
     <div className="mx-auto max-w-3xl space-y-6 p-6">
       <div className="flex items-center justify-between">
         <div>
-          {/* ✅ 單一 H1，內容只放 niceTitle */}
           <h1 className="text-2xl font-semibold">Quiz：{niceTitle}</h1>
 
           {SHOW_DEBUG && (apiUrl || debug) && (
@@ -695,7 +670,7 @@ export default function QuizPage() {
         </Link>
       </div>
 
-      {/* 進度條 + 分數徽章 */}
+      {/* 進度條 + 分數 */}
       <div className="flex items-center justify-between">
         <div className="mr-3 flex-1">
           <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
