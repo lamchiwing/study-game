@@ -16,7 +16,8 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
   "https://study-game-back.onrender.com";
 
-const SHOW_DEBUG = true;
+const SHOW_DEBUG = import.meta.env.MODE === "development";
+
 
 /* ======================= Types ======================= */
 type QMCQ = {
