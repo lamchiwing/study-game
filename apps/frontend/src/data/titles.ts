@@ -1,5 +1,36 @@
 // apps/frontend/src/data/titles.ts
-// 將 slug 規格化
+
+/** 將年級正規化為 grade1..grade6
+ *  - 若本來已是 grade1..6 → 直接回傳，不再替換（避免 graderaderade1）
+ *  - 支援 p1/g1/primary1/yr1/year1/grade01… 等寫法
+ */
+export function canonGrade(x?: string): string {
+  let t = String(x || "").trim().toLowerCase();
+
+  // 已經是正確格式時，不要再碰（關鍵）
+  if (/^grade[1-6]$/.test(t)) return t;
+
+  // 去空白與符號，避免 grade-01 / year_1 等
+  t = t.replace(/\s+/g, "").replace(/[^a-z0-9]/g, "");
+
+  // 把 primary/year/yr 統一為 grade
+  t = t.replace(/^(primary|year|yr)/i, "grade");
+
+  // 把 p1 / g1 轉為 grade1
+  t = t.replace(/^(?:p|g)0*([1-6])$/i, "grade$1");
+
+  // 把 grade01 → grade1
+  t = t.replace(/^grade0*([1-6])$/i, "grade$1");
+
+  return t;
+}
+
+/** 將 slug 規格化
+ *  - 路徑清理：\ → /、去重複 /、去首尾 /
+ *  - 第 1 段科目同義詞歸一
+ *  - 第 2 段年級使用 canonGrade（避免重覆套用）
+ *  - 其餘段轉小寫、-- 壓成 -
+ */
 export function normalizeSlug(s: string): string {
   const raw = String(s || "")
     .replace(/\\/g, "/")
@@ -11,26 +42,23 @@ export function normalizeSlug(s: string): string {
   if (parts[0]) {
     const sub = parts[0].toLowerCase();
     if (["maths", "mathematics"].includes(sub)) parts[0] = "math";
-    else if (["chinese", "cn", "chi", "zh"].includes(sub)) parts[0] = "chinese";
+    else if (["chinese", "cn", "chi, zh"].includes(sub)) parts[0] = "chinese";
     else if (["english", "en"].includes(sub)) parts[0] = "english";
     else if (["general", "gs", "gen"].includes(sub)) parts[0] = "general";
     else parts[0] = sub;
   }
 
-  // 第 2 段：年級 → grade1..grade6（僅當 pattern 符合才規範化）
+  // 第 2 段：年級
   if (parts[1]) {
-    const g = parts[1].toLowerCase();
-    const m = g.match(/^(?:grade|g|p|primary|yr|year)[-_ ]*0*([1-6])$/i);
-    parts[1] = m ? `grade${m[1]}` : g; // 已是 grade1 就保持，不會再重複替換
+    parts[1] = canonGrade(parts[1]);
   }
 
-  // 其他段全部小寫、-- → -
+  // 其他段小寫、-- → -
   for (let i = 2; i < parts.length; i++) {
     parts[i] = parts[i].toLowerCase().replace(/--+/g, "-");
   }
   return parts.join("/");
 }
-
 
 /** 科目中文名 */
 export function subjectZh(subj?: string): string {
@@ -43,10 +71,9 @@ export function subjectZh(subj?: string): string {
   return m[(subj || "").toLowerCase()] ?? (subj || "");
 }
 
+/** 年級中文名（接受多種寫法） */
 export function gradeZh(grade?: string): string {
-  const g = String(grade || "").toLowerCase();
-  const m = g.match(/^(?:grade|g|p|primary|yr|year)[-_ ]*0*([1-6])$/i);
-  const key = m ? `grade${m[1]}` : g;
+  const key = canonGrade(grade);
   const map: Record<string, string> = {
     grade1: "小一",
     grade2: "小二",
@@ -55,9 +82,8 @@ export function gradeZh(grade?: string): string {
     grade5: "小五",
     grade6: "小六",
   };
-  return map[key] ?? grade ?? "";
+  return map[key] ?? (grade ?? "");
 }
-
 
 /** 中文標題 fallback（key 必須是 normalizeSlug 之後的字串） */
 const TITLE_FALLBACK_RAW: Record<string, string> = {
@@ -70,11 +96,12 @@ const TITLE_FALLBACK_RAW: Record<string, string> = {
   "math/grade1/20m": "1–20（中階）",
   "math/grade1/20h": "1–20（高階）",
 
-  // 21–100 三個等級 — 支援兩種路徑：21-100l 以及 21-100/l
+  // 21–100 三個等級（常見兩種結構：21-100l / 21-100/l）
   "math/grade1/21-100l": "21–100（初階）",
   "math/grade1/21-100m": "21–100（中階）",
   "math/grade1/21-100h": "21–100（高階）",
-  
+
+  // 有些資料源只給一層 l/m/h
   "math/grade1/l": "基礎數學（初階）",
   "math/grade1/m": "基礎數學（中階）",
   "math/grade1/h": "基礎數學（高階）",
