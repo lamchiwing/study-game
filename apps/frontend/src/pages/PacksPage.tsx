@@ -60,31 +60,23 @@ export default function PacksPage() {
         const r = await fetch(`${API_BASE}/api/packs`);
         const raw = await r.json();
 
+        // … 讀 API 之後
         const rows: any[] = Array.isArray(raw) ? raw : raw?.packs || raw?.items || [];
         const seen = new Set<string>();
         const cleaned: Pack[] = [];
-
+        
         for (const x of rows) {
           if (!x?.slug) continue;
-
-          // 1) 規範化 slug
           const norm = normalizeSlug(String(x.slug));
-
-          // 2) 由 slug 提取 subject/grade，再做同義詞歸一
-          const parts = norm.split("/").filter(Boolean);
-          const subj = canonSubject(x.subject ?? parts[0] ?? "");
-          const grd = canonGrade(x.grade ?? parts[1] ?? "");
-
-          // 3) 以規範後 slug 去重
+          const [s0, g0] = norm.split("/").filter(Boolean);
+          const subj = (s0 || "").toLowerCase();
+          const grade = canonGrade(x.grade ?? g0);
+        
+          if (!/^grade[1-6]$/.test(grade)) continue; // 🔒 只收合法年級
           if (seen.has(norm)) continue;
           seen.add(norm);
-
-          cleaned.push({
-            ...x,
-            slug: norm,
-            subject: subj,
-            grade: grd,
-          });
+        
+          cleaned.push({ ...x, slug: norm, subject: subj, grade });
         }
 
         if (!alive) return;
