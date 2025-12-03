@@ -18,7 +18,6 @@ const API_BASE =
 
 const SHOW_DEBUG = false;
 
-
 /* ======================= Types ======================= */
 type QMCQ = {
   id?: string;
@@ -229,6 +228,13 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
   };
 }
 
+// 簡單本地判斷：此科目＋年級是否已解鎖（付費）
+function isPackUnlocked(subject?: string, grade?: string): boolean {
+  if (!subject || !grade) return false;
+  const key = `sg_paid_${subject}_${grade}`;
+  return localStorage.getItem(key) === "1";
+}
+
 /* ======================= Component ======================= */
 export default function QuizPage() {
   const [sp] = useSearchParams();
@@ -249,7 +255,28 @@ export default function QuizPage() {
   const [done, setDone] = useState(false);
   const [popPlusOne, setPopPlusOne] = useState(false);
 
+  // 寄送報告相關輸入框
+  const [reportEmail, setReportEmail] = useState("");
+  const [reportName, setReportName] = useState("");
+  const [sending, setSending] = useState(false);
+
   const userId = useMemo(() => localStorage.getItem("uid") || "", []);
+
+  // 解析 slug → subject / grade（用於 pricing 參數 & 解鎖 key）
+  const { subject, grade } = useMemo(() => parseSubjectGrade(normSlug), [normSlug]);
+
+  // 是否已解鎖此科目＋年級
+  const [unlocked, setUnlocked] = useState(false);
+
+  // 支援從 /quiz?slug=...&unlock=1 回來後寫入 localStorage 解鎖
+  useEffect(() => {
+    const unlockFlag = sp.get("unlock");
+    if (unlockFlag === "1" && subject && grade) {
+      const key = `sg_paid_${subject}_${grade}`;
+      localStorage.setItem(key, "1");
+    }
+    setUnlocked(isPackUnlocked(subject, grade));
+  }, [sp, subject, grade]);
 
   // 取題
   useEffect(() => {
@@ -370,7 +397,6 @@ export default function QuizPage() {
         onInfo: (m) => alert(m),
         onError: (m) => alert(m),
         onRequireUpgrade: () => {
-          const { subject, grade } = parseSubjectGrade(normSlug);
           const q = new URLSearchParams({
             from: "report",
             ...(subject ? { subject } : {}),
@@ -389,7 +415,8 @@ export default function QuizPage() {
     }
   }
 
-  const nextQ = () => (idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true));
+  const nextQ = () =>
+    idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true);
   const prevQ = () => idx > 0 && setIdx(idx - 1);
 
   const restart = () => {
@@ -486,7 +513,12 @@ export default function QuizPage() {
     }
     // match
     return (q as QMatch).left
-      .map((L, li) => `${stripBBCode(L)} → ${stripBBCode((q as QMatch).right[(q as QMatch).answerMap[li]])}`)
+      .map(
+        (L, li) =>
+          `${stripBBCode(L)} → ${stripBBCode(
+            (q as QMatch).right[(q as QMatch).answerMap[li]]
+          )}`
+      )
       .join(" | ");
   }
 
@@ -513,8 +545,14 @@ export default function QuizPage() {
         <p>No questions.</p>
         {SHOW_DEBUG && (apiUrl || debug) && (
           <div className="break-all text-xs text-gray-500">
-            <div><b>source:</b> {apiUrl ?? "N/A"}</div>
-            {debug ? <div><b>debug:</b> {debug}</div> : null}
+            <div>
+              <b>source:</b> {apiUrl ?? "N/A"}
+            </div>
+            {debug ? (
+              <div>
+                <b>debug:</b> {debug}
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -566,36 +604,82 @@ export default function QuizPage() {
         )}
 
         <div className="text-lg">
-          Score: <span className="font-semibold">{score}</span> / {total} ({percent}%)
+          Score: <span className="font-semibold">{score}</span> / {total} (
+          {percent}%)
         </div>
 
-        {/* 詳解 */}
-        <div className="space-y-3">
-          {questions.map((q, i) => {
-            const ok = isCorrect(q, answers[i]);
-            return (
-              <div
-                key={q.id ?? i}
-                className={`rounded border p-4 ${
-                  ok ? "border-emerald-400 bg-emerald-50" : "border-red-300 bg-red-50"
-                }`}
-              >
-                <div className="mb-1 text-sm text-gray-500">Q{i + 1}</div>
-                <div className="mb-2 font-medium">{renderContent(q.stem)}</div>
+        {/* ✅ 這裡開始：答案報告 gating */}
+        {unlocked ? (
+          <>
+            <div className="mt-3 rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              已解鎖此科目／年級的「答案報告」，以下為每題詳盡解析。
+            </div>
 
-                <div className="text-sm">你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}</div>
+            {/* 詳解 */}
+            <div className="space-y-3">
+              {questions.map((q, i) => {
+                const ok = isCorrect(q, answers[i]);
+                return (
+                  <div
+                    key={q.id ?? i}
+                    className={`rounded border p-4 ${
+                      ok
+                        ? "border-emerald-400 bg-emerald-50"
+                        : "border-red-300 bg-red-50"
+                    }`}
+                  >
+                    <div className="mb-1 text-sm text-gray-500">
+                      Q{i + 1}
+                    </div>
+                    <div className="mb-2 font-medium">
+                      {renderContent(q.stem)}
+                    </div>
 
-                {!ok && <div className="mt-2 text-sm">正確答案： {formatCorrectAnswer(q)}</div>}
+                    <div className="text-sm">
+                      你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}
+                    </div>
 
-                {"explain" in q && q.explain ? (
-                  <div className="mt-2 text-sm text-gray-600">解釋：{renderContent(q.explain)}</div>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
+                    {!ok && (
+                      <div className="mt-2 text-sm">
+                        正確答案： {formatCorrectAnswer(q)}
+                      </div>
+                    )}
 
-        {/* 寄送報告 */}
+                    {"explain" in q && q.explain ? (
+                      <div className="mt-2 text-sm text-gray-600">
+                        解釋：{renderContent(q.explain)}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </>
+        ) : (
+          <div className="mt-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-medium mb-1">想查看「答案報告」？</div>
+            <p className="mb-2">
+              目前只顯示總分。購買家長方案後，才可以解鎖每題詳盡答案與解析，並可寄送家長 Email
+              報告。
+            </p>
+            <button
+              onClick={() => {
+                const q = new URLSearchParams({
+                  from: "quiz-result",
+                  slug: normSlug,
+                  ...(subject ? { subject } : {}),
+                  ...(grade ? { grade } : {}),
+                });
+                navigate(`/pricing?${q.toString()}`);
+              }}
+              className="mt-1 rounded bg-black px-3 py-2 text-white"
+            >
+              前往方案與收費頁 →
+            </button>
+          </div>
+        )}
+
+        {/* 寄送報告（Email）—— 這裏也會在後端 402 時跳去 pricing */}
         <div className="flex flex-col gap-3">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <input
@@ -614,7 +698,10 @@ export default function QuizPage() {
           </div>
 
           <div className="flex gap-2">
-            <button onClick={restart} className="rounded bg-black px-3 py-2 text-white">
+            <button
+              onClick={restart}
+              className="rounded bg-black px-3 py-2 text-white"
+            >
               Restart
             </button>
             <button
@@ -678,7 +765,11 @@ export default function QuizPage() {
             <motion.div
               className="h-2 bg-black"
               initial={{ width: 0 }}
-              animate={{ width: `${(idx / Math.max(questions.length - 1, 1)) * 100}%` }}
+              animate={{
+                width: `${
+                  (idx / Math.max(questions.length - 1, 1)) * 100
+                }%`,
+              }}
               transition={{ type: "spring", stiffness: 120, damping: 18 }}
             />
           </div>
@@ -715,7 +806,9 @@ export default function QuizPage() {
 
       <div className="rounded-lg border p-5">
         <div className="mb-3 font-medium">{renderContent(q.stem)}</div>
-        {q.image ? <img src={q.image} alt="" className="mb-4 max-h-72 rounded" /> : null}
+        {q.image ? (
+          <img src={q.image} alt="" className="mb-4 max-h-72 rounded" />
+        ) : null}
 
         {/* MCQ */}
         {q.type === "mcq" && (
@@ -732,12 +825,18 @@ export default function QuizPage() {
                   whileHover={{ scale: picked ? 1 : 1.01 }}
                   className={`flex items-start gap-2 rounded border p-3 text-left hover:bg-gray-50 ${
                     active ? "border-black ring-1 ring-black" : ""
-                  } ${picked && !active ? "pointer-events-none opacity-50" : ""}`}
+                  } ${
+                    picked && !active
+                      ? "pointer-events-none opacity-50"
+                      : ""
+                  }`}
                 >
                   <span className="mt-0.5 inline-flex h-6 w-6 items-center justify-center rounded-full border text-sm font-semibold">
                     {"ABCD"[i]}
                   </span>
-                  <span className="flex-1 break-words whitespace-normal">{renderContent(text)}</span>
+                  <span className="flex-1 break-words whitespace-normal">
+                    {renderContent(text)}
+                  </span>
                 </motion.button>
               );
             })}
@@ -754,7 +853,11 @@ export default function QuizPage() {
               disabled={a !== null && a !== undefined && a !== true}
               className={`rounded border px-3 py-2 ${
                 a === true ? "border-black ring-1 ring-black" : "hover:bg-gray-50"
-              } ${a !== null && a !== undefined && a !== true ? "pointer-events-none opacity-50" : ""}`}
+              } ${
+                a !== null && a !== undefined && a !== true
+                  ? "pointer-events-none opacity-50"
+                  : ""
+              }`}
             >
               True
             </motion.button>
@@ -764,8 +867,14 @@ export default function QuizPage() {
               onClick={() => pickTF(false)}
               disabled={a !== null && a !== undefined && a !== false}
               className={`rounded border px-3 py-2 ${
-                a === false ? "border-black ring-1 ring-black" : "hover:bg-gray-50"
-              } ${a !== null && a !== undefined && a !== false ? "pointer-events-none opacity-50" : ""}`}
+                a === false
+                  ? "border-black ring-1 ring-black"
+                  : "hover:bg-gray-50"
+              } ${
+                a !== null && a !== undefined && a !== false
+                  ? "pointer-events-none opacity-50"
+                  : ""
+              }`}
             >
               False
             </motion.button>
@@ -790,20 +899,33 @@ export default function QuizPage() {
             {(q as QMatch).left.map((L, li) => {
               const chosen = (a as Array<number | null>)[li];
               const used = new Set(
-                (a as Array<number | null>).filter((x, j) => j !== li && x != null) as number[]
+                (a as Array<number | null>).filter(
+                  (x, j) => j !== li && x != null
+                ) as number[]
               );
               return (
                 <div key={li} className="flex items-center gap-3">
-                  <div className="flex-1 rounded border p-2">{renderContent(L)}</div>
+                  <div className="flex-1 rounded border p-2">
+                    {renderContent(L)}
+                  </div>
                   <span className="opacity-60">→</span>
                   <select
                     className="w-1/2 rounded border p-2"
                     value={chosen ?? ""}
-                    onChange={(e) => pickMatch(li, e.target.value === "" ? null : Number(e.target.value))}
+                    onChange={(e) =>
+                      pickMatch(
+                        li,
+                        e.target.value === "" ? null : Number(e.target.value)
+                      )
+                    }
                   >
                     <option value="">請選擇</option>
                     {(q as QMatch).right.map((R, ri) => (
-                      <option key={ri} value={ri} disabled={used.has(ri)}>
+                      <option
+                        key={ri}
+                        value={ri}
+                        disabled={used.has(ri)}
+                      >
                         {stripBBCode(R)}
                       </option>
                     ))}
@@ -816,7 +938,11 @@ export default function QuizPage() {
       </div>
 
       <div className="flex items-center justify-between">
-        <button onClick={prevQ} disabled={idx === 0} className="rounded border px-3 py-2 disabled:opacity-50">
+        <button
+          onClick={prevQ}
+          disabled={idx === 0}
+          className="rounded border px-3 py-2 disabled:opacity-50"
+        >
           ← Prev
         </button>
 
@@ -830,7 +956,10 @@ export default function QuizPage() {
             : "已選擇"}
         </div>
 
-        <button onClick={nextQ} className="rounded bg-black px-3 py-2 text-white">
+        <button
+          onClick={nextQ}
+          className="rounded bg-black px-3 py-2 text-white"
+        >
           {idx < questions.length - 1 ? "Next →" : "Finish ✅"}
         </button>
       </div>
