@@ -19,6 +19,7 @@ const SUBJECT_COLOR: Record<string, string> = {
   general: "from-lime-100 to-green-200",
 };
 
+// 將 BASE 清乾淨（移除結尾斜線；避免被 proxy 雙域名包住）
 function normBase(s?: string) {
   let b = (s ?? "").trim().replace(/^['"]|['"]$/g, "").replace(/\/+$/, "");
   const m = b.match(/^(https?:\/\/[^/]+)(?:\/https?:\/\/[^/]+)?$/);
@@ -28,11 +29,20 @@ const API_BASE =
   normBase(import.meta.env.VITE_API_BASE as string | undefined) ||
   "https://study-game-back.onrender.com";
 
-function coercePacks(x: any): Pack[] {
-  if (Array.isArray(x)) return x;
-  if (x && Array.isArray(x.packs)) return x.packs;
-  if (x && Array.isArray(x.items)) return x.items;
-  return [];
+// —— 同義詞歸一 —— //
+function canonSubject(x?: string) {
+  const s = String(x || "").toLowerCase();
+  if (["math", "maths", "mathematics"].includes(s)) return "math";
+  if (["chinese", "cn", "chi", "zh"].includes(s)) return "chinese";
+  if (["english", "en"].includes(s)) return "english";
+  if (["general", "gs", "gen"].includes(s)) return "general";
+  return s;
+}
+function canonGrade(x?: string) {
+  return String(x || "")
+    .toLowerCase()
+    .replace(/^(primary|p|yr|year|g)/i, "grade")
+    .replace(/^grade0*([1-6])$/, "grade$1");
 }
 
 export default function PacksPage() {
@@ -47,59 +57,75 @@ export default function PacksPage() {
       setLoading(true);
       setError(null);
       try {
-        const base = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/,'') 
-          || "https://study-game-back.onrender.com";
-        const r = await fetch(`${base}/api/packs`);
+        const r = await fetch(`${API_BASE}/api/packs`);
         const raw = await r.json();
 
-        const list = (Array.isArray(raw) ? raw : raw?.packs || [])
-          .filter((x: any)=>x?.slug)
-          .map((x: any) => {
-            const norm = normalizeSlug(x.slug);
-            const [s,g] = norm.split("/").filter(Boolean);
-            return {
-              ...x,
-              slug: norm,                // ✅ 用正規化後的 slug
-              subject: x.subject ?? s,   // 補 subject
-              grade: x.grade ?? g,       // 補 grade
-            };
+        const rows: any[] = Array.isArray(raw) ? raw : raw?.packs || raw?.items || [];
+        const seen = new Set<string>();
+        const cleaned: Pack[] = [];
+
+        for (const x of rows) {
+          if (!x?.slug) continue;
+
+          // 1) 規範化 slug
+          const norm = normalizeSlug(String(x.slug));
+
+          // 2) 由 slug 提取 subject/grade，再做同義詞歸一
+          const parts = norm.split("/").filter(Boolean);
+          const subj = canonSubject(x.subject ?? parts[0] ?? "");
+          const grd = canonGrade(x.grade ?? parts[1] ?? "");
+
+          // 3) 以規範後 slug 去重
+          if (seen.has(norm)) continue;
+          seen.add(norm);
+
+          cleaned.push({
+            ...x,
+            slug: norm,
+            subject: subj,
+            grade: grd,
           });
+        }
 
         if (!alive) return;
-        setPacks(list);
-      } catch (e:any) {
+        setPacks(cleaned);
+      } catch (e: any) {
         if (!alive) return;
-        setError(String(e?.message||e));
+        setError(String(e?.message || e));
         setPacks([]);
       } finally {
         alive && setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
-  
-  
+
+  // —— 搜尋 —— //
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return packs;
     return packs.filter((p) => {
-      const subj = subjectZh(p.subject ?? "").toLowerCase();
-      const grd = gradeZh(p.grade ?? "").toLowerCase();
+      const subj = subjectZh(p.subject ?? "").toLowerCase(); // 中文科目
+      const grd = gradeZh(p.grade ?? "").toLowerCase();      // 中文年級
       const t = (p.title ?? "").toLowerCase();
-      const full = `${p.slug} ${subj} ${grd} ${t}`;
+      const full = `${p.slug} ${p.subject} ${p.grade} ${subj} ${grd} ${t}`;
       return full.includes(q);
     });
   }, [packs, query]);
 
+  // —— 分組：Subject → Grade —— //
   const grouped = useMemo(() => {
     const m: Record<string, Record<string, Pack[]>> = {};
     for (const p of filtered) {
-      const subj = (p.subject ?? "").toLowerCase();
-      const grd = (p.grade ?? "").toLowerCase();
-      if (!m[subj]) m[subj] = {};
-      if (!m[subj][grd]) m[subj][grd] = [];
-      m[subj][grd].push(p);
+      const s = canonSubject(p.subject);
+      const g = canonGrade(p.grade);
+      if (!m[s]) m[s] = {};
+      if (!m[s][g]) m[s][g] = [];
+      m[s][g].push(p);
     }
+    // 每個年級內按 slug 排序
     Object.keys(m).forEach((s) => {
       Object.keys(m[s]).forEach((g) => {
         m[s][g].sort((a, b) => a.slug.localeCompare(b.slug));
@@ -119,6 +145,10 @@ export default function PacksPage() {
     );
   if (!packs.length) return <div className="p-6 text-center">目前沒有題包。</div>;
 
+  // 年級排序
+  const gradeOrder = ["grade1", "grade2", "grade3", "grade4", "grade5", "grade6"];
+  const sortGrades = (a: string, b: string) => gradeOrder.indexOf(a) - gradeOrder.indexOf(b);
+
   return (
     <div className="p-6 space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -137,9 +167,7 @@ export default function PacksPage() {
           className="w-full rounded-xl border px-4 py-2 text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
         />
         {query && (
-          <div className="mt-1 text-center text-sm text-gray-500">
-            共找到 {filtered.length} 個題包
-          </div>
+          <div className="mt-1 text-center text-sm text-gray-500">共找到 {filtered.length} 個題包</div>
         )}
       </div>
 
@@ -147,91 +175,50 @@ export default function PacksPage() {
       {Object.entries(grouped).map(([subj, byGrade]) => {
         const color = SUBJECT_COLOR[subj] ?? "from-gray-100 to-gray-200";
         const subjName = subjectZh(subj) || subj || "其他";
+
+        // 年級排序
+        const grades = Object.keys(byGrade).sort(sortGrades);
+
         return (
           <section key={subj} className="space-y-4">
-            <h2 className="text-xl font-bold text-gray-800 border-b pb-1">{subjName}</h2>
+            <h2 className="border-b pb-1 text-xl font-bold text-gray-800">{subjName}</h2>
 
-      {/* 年級層 */}
-      {Object.entries(byGrade).map(([grd, list]) => (
-         <div key={`${subj}-${grd}`} className="space-y-3">
-           <h3 className="text-lg font-semibold text-gray-600">
-             {gradeZh(grd) || grd || "年級"}
-           </h3>
-
-           <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-            {list.map((p) => {
-              // 先標準化 slug
-              const key = normalizeSlug(p.slug || "");
-              const parts = key.split("/").filter(Boolean);
-              const subjFromSlug = parts[0] || "";
-              const gradeFromSlug = parts[1] || "";
-
-             // 顯示名稱：fallback → CSV title → 最後一段 prettify → 原始 slug
-              const nice =
-                titleFromSlug(key) ||
-                (p.title || "").trim() ||
-                (parts[parts.length - 1] || "")
-                  .replace(/[-_]+/g, " ")
-                  .replace(/\b\w/g, (m) => m.toUpperCase()) ||
-                p.slug;
-
-              return (
-                <motion.div
-                  key={p.slug}
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.98 }}
-                  className={`rounded-2xl bg-gradient-to-br ${color} p-4 shadow-sm hover:shadow-md transition`}
-              >
-                  <div className="flex h-full flex-col justify-between">
-                    <div className="mb-2 text-lg font-bold text-gray-800">{nice}</div>
-
-                  <div className="mb-3 text-sm text-gray-600">
-                    {subjectZh(p.subject || subjFromSlug)}｜{gradeZh(p.grade || gradeFromSlug)}
-                  </div>
-
-                  <Link
-                    // 用 normalize 後的 slug 帶去 Quiz，避免路徑不一致
-                    to={`/quiz?slug=${encodeURIComponent(key)}`}
-                    className="inline-block rounded-lg bg-black px-3 py-1.5 text-center text-white hover:bg-gray-800 transition"
-                  >
-                    開始練習 ▶
-                  </Link>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-      </div>
-    ))}
-
-            {/* 年級層 */}
-            {Object.entries(byGrade).map(([grd, list]) => (
+            {/* 年級層（單一，避免重複） */}
+            {grades.map((grd) => (
               <div key={`${subj}-${grd}`} className="space-y-3">
                 <h3 className="text-lg font-semibold text-gray-600">{gradeZh(grd) || grd || "年級"}</h3>
 
                 <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-                  {list.map((p) => {
+                  {byGrade[grd].map((p) => {
+                    const key = normalizeSlug(p.slug || ""); // 謹慎再規範一次
+                    const parts = key.split("/").filter(Boolean);
+                    const subjFromSlug = parts[0] || "";
+                    const gradeFromSlug = parts[1] || "";
+
+                    // 顯示名稱：fallback → CSV title → prettified 最後段 → 原 slug
                     const nice =
-                      titleFromSlug(p.slug) ||
-                      p.title ||
-                      normalizeSlug(p.slug).split("/").pop()?.replace(/[-_]+/g, " ") ||
+                      titleFromSlug(key) ||
+                      (p.title || "").trim() ||
+                      (parts[parts.length - 1] || "")
+                        .replace(/[-_]+/g, " ")
+                        .replace(/\b\w/g, (m) => m.toUpperCase()) ||
                       p.slug;
 
                     return (
                       <motion.div
-                        key={p.slug}
+                        key={key}
                         whileHover={{ scale: 1.04 }}
                         whileTap={{ scale: 0.98 }}
-                        className={`rounded-2xl bg-gradient-to-br ${color} p-4 shadow-sm hover:shadow-md transition`}
+                        className={`rounded-2xl bg-gradient-to-br ${color} p-4 shadow-sm transition hover:shadow-md`}
                       >
                         <div className="flex h-full flex-col justify-between">
                           <div className="mb-2 text-lg font-bold text-gray-800">{nice}</div>
                           <div className="mb-3 text-sm text-gray-600">
-                            {subjectZh(p.subject)}｜{gradeZh(p.grade)}
+                            {subjectZh(p.subject || subjFromSlug)}｜{gradeZh(p.grade || gradeFromSlug)}
                           </div>
                           <Link
-                            to={`/quiz?slug=${encodeURIComponent(p.slug)}`}
-                            className="inline-block rounded-lg bg-black px-3 py-1.5 text-center text-white hover:bg-gray-800 transition"
+                            to={`/quiz?slug=${encodeURIComponent(key)}`} // 一律用規範化 slug
+                            className="inline-block rounded-lg bg-black px-3 py-1.5 text-center text-white transition hover:bg-gray-800"
                           >
                             開始練習 ▶
                           </Link>
