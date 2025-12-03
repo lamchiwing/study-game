@@ -29,7 +29,7 @@ const API_BASE =
   normBase(import.meta.env.VITE_API_BASE as string | undefined) ||
   "https://study-game-back.onrender.com";
 
-// —— 同義詞歸一 —— //
+// —— 同義詞歸一（科目） —— //
 function canonSubject(x?: string) {
   const s = String(x || "").toLowerCase();
   if (["math", "maths", "mathematics"].includes(s)) return "math";
@@ -37,12 +37,6 @@ function canonSubject(x?: string) {
   if (["english", "en"].includes(s)) return "english";
   if (["general", "gs", "gen"].includes(s)) return "general";
   return s;
-}
-function canonGrade(x?: string) {
-  return String(x || "")
-    .toLowerCase()
-    .replace(/^(primary|p|yr|year|g)/i, "grade")
-    .replace(/^grade0*([1-6])$/, "grade$1");
 }
 
 export default function PacksPage() {
@@ -60,22 +54,23 @@ export default function PacksPage() {
         const r = await fetch(`${API_BASE}/api/packs`);
         const raw = await r.json();
 
-        // … 讀 API 之後
         const rows: any[] = Array.isArray(raw) ? raw : raw?.packs || raw?.items || [];
         const seen = new Set<string>();
         const cleaned: Pack[] = [];
-        
+
         for (const x of rows) {
           if (!x?.slug) continue;
-          const norm = normalizeSlug(String(x.slug));
-          const [s0, g0] = norm.split("/").filter(Boolean);
-          const subj = (s0 || "").toLowerCase();
-          const grade = canonGrade(x.grade ?? g0);
-        
-          if (!/^grade[1-6]$/.test(grade)) continue; // 🔒 只收合法年級
+
+          const norm = normalizeSlug(String(x.slug));              // 規範化 slug
+          const [s0, g0] = norm.split("/").filter(Boolean);        // 由 slug 抽出 subj/grade
+          const subj = canonSubject(x.subject ?? s0);              // 科目同義詞歸一
+          const grade = canonGrade(x.grade ?? g0);                 // 年級正規化
+
+          // 只接收合法年級，並用 slug 去重
+          if (!/^grade[1-6]$/.test(grade)) continue;
           if (seen.has(norm)) continue;
           seen.add(norm);
-        
+
           cleaned.push({ ...x, slug: norm, subject: subj, grade });
         }
 
@@ -99,10 +94,10 @@ export default function PacksPage() {
     const q = query.trim().toLowerCase();
     if (!q) return packs;
     return packs.filter((p) => {
-      const subj = subjectZh(p.subject ?? "").toLowerCase(); // 中文科目
-      const grd = gradeZh(p.grade ?? "").toLowerCase();      // 中文年級
+      const subjCn = subjectZh(p.subject ?? "").toLowerCase(); // 中文科目
+      const grdCn = gradeZh(p.grade ?? "").toLowerCase();      // 中文年級
       const t = (p.title ?? "").toLowerCase();
-      const full = `${p.slug} ${p.subject} ${p.grade} ${subj} ${grd} ${t}`;
+      const full = `${p.slug} ${p.subject} ${p.grade} ${subjCn} ${grdCn} ${t}`;
       return full.includes(q);
     });
   }, [packs, query]);
@@ -117,7 +112,7 @@ export default function PacksPage() {
       if (!m[s][g]) m[s][g] = [];
       m[s][g].push(p);
     }
-    // 每個年級內按 slug 排序
+    // 每個年級內按 slug 排序，避免卡片跳動
     Object.keys(m).forEach((s) => {
       Object.keys(m[s]).forEach((g) => {
         m[s][g].sort((a, b) => a.slug.localeCompare(b.slug));
@@ -159,7 +154,9 @@ export default function PacksPage() {
           className="w-full rounded-xl border px-4 py-2 text-base shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
         />
         {query && (
-          <div className="mt-1 text-center text-sm text-gray-500">共找到 {filtered.length} 個題包</div>
+          <div className="mt-1 text-center text-sm text-gray-500">
+            共找到 {filtered.length} 個題包
+          </div>
         )}
       </div>
 
@@ -178,7 +175,9 @@ export default function PacksPage() {
             {/* 年級層（單一，避免重複） */}
             {grades.map((grd) => (
               <div key={`${subj}-${grd}`} className="space-y-3">
-                <h3 className="text-lg font-semibold text-gray-600">{gradeZh(grd) || grd || "年級"}</h3>
+                <h3 className="text-lg font-semibold text-gray-600">
+                  {gradeZh(grd) || grd || "年級"}
+                </h3>
 
                 <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
                   {byGrade[grd].map((p) => {
