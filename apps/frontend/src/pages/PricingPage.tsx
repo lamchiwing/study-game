@@ -1,4 +1,4 @@
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMemo, useState } from "react";
 
 const SUBJECTS = [
@@ -18,22 +18,38 @@ const GRADES = [
 
 export default function PricingPage() {
   const navigate = useNavigate();
+  const [sp] = useSearchParams();
 
-  // Starter 用戶選擇（預設：中文 + 小一）
-  const [starterSubject, setStarterSubject] = useState("chinese");
-  const [starterGrade, setStarterGrade] = useState("grade1");
+  // 如果係由 Quiz 跳過嚟，URL 會帶住呢啲參數
+  const slugFromQuery = sp.get("slug") || "";
+  const subjectFromQuery = sp.get("subject") || "chinese";
+  const gradeFromQuery = sp.get("grade") || "grade1";
 
-  // 產生 checkout 連結
-  const starterHref = useMemo(
-    () =>
-      `/checkout?plan=starter&subject=${encodeURIComponent(
-        starterSubject
-      )}&grade=${encodeURIComponent(starterGrade)}`,
-    [starterSubject, starterGrade]
-  );
+  // Starter 用戶選擇（預設：由 URL 帶入，否則用中文＋小一）
+  const [starterSubject, setStarterSubject] = useState(subjectFromQuery);
+  const [starterGrade, setStarterGrade] = useState(gradeFromQuery);
+
+  // 產生 checkout 連結（Starter）
+  const starterHref = useMemo(() => {
+    const qs = new URLSearchParams({
+      plan: "starter",
+      subject: starterSubject,
+      grade: starterGrade,
+    });
+    if (slugFromQuery) {
+      qs.set("slug", slugFromQuery);
+    }
+    return `/checkout?${qs.toString()}`;
+  }, [starterSubject, starterGrade, slugFromQuery]);
 
   const goStarter = () => navigate(starterHref);
-  const goPro = () => navigate(`/checkout?plan=pro`);
+
+  // Pro 方案：同樣把 slug 帶過去（subject/grade 由後台自己決定要點用）
+  const goPro = () => {
+    const qs = new URLSearchParams({ plan: "pro" });
+    if (slugFromQuery) qs.set("slug", slugFromQuery);
+    navigate(`/checkout?${qs.toString()}`);
+  };
 
   return (
     <div className="p-8 max-w-5xl mx-auto">
@@ -50,7 +66,9 @@ export default function PricingPage() {
         {/* Free */}
         <div className="rounded-2xl border p-6 shadow-sm bg-white/70">
           <h2 className="mb-2 text-xl font-semibold">Free</h2>
-          <p className="mb-4 text-sm text-gray-600">基本練習、少量題包、無家長報告</p>
+          <p className="mb-4 text-sm text-gray-600">
+            基本練習、少量題包、無家長報告
+          </p>
           <ul className="mb-6 list-disc pl-5 text-sm space-y-1">
             <li>可做免費練習</li>
             <li>基本答題統計</li>
@@ -61,7 +79,9 @@ export default function PricingPage() {
         {/* Starter */}
         <div className="rounded-2xl border p-6 shadow-sm ring-2 ring-indigo-500 bg-white">
           <h2 className="mb-2 text-xl font-semibold">Starter</h2>
-          <p className="mb-4 text-sm text-gray-600">解鎖「指定針對科目＋年級」，支援家長報告</p>
+          <p className="mb-4 text-sm text-gray-600">
+            解鎖「指定針對科目＋年級」，支援家長報告
+          </p>
 
           {/* 先選科目 + 年級 */}
           <div className="mb-4 grid grid-cols-1 gap-3">
@@ -114,7 +134,9 @@ export default function PricingPage() {
         {/* Pro */}
         <div className="rounded-2xl border p-6 shadow-sm bg-white/70">
           <h2 className="mb-2 text-xl font-semibold">Pro</h2>
-          <p className="mb-4 text-sm text-gray-600">全部科目年級、進階追蹤與練習建議</p>
+          <p className="mb-4 text-sm text-gray-600">
+            全部科目年級、進階追蹤與練習建議
+          </p>
           <ul className="mb-6 list-disc pl-5 text-sm space-y-1">
             <li>全部練習</li>
             <li>家長報告＋歷史紀錄</li>
