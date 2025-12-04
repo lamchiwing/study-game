@@ -7,32 +7,32 @@ import QuizPage from "./pages/QuizPage";
 import UploadPage from "./pages/UploadPage";
 import ParentReportPage from "./pages/ParentReportPage";
 import PricingPage from "./pages/PricingPage";
+import CheckoutPage from "./pages/CheckoutPage";
+import CheckoutSuccessPage from "./pages/CheckoutSuccessPage";
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* 預設導向 */}
-        <Route path="/" element={<Navigate to="/packs" replace />} />
-
-        {/* 題包清單 */}
+        <Route index element={<Navigate to="/packs" replace />} />
         <Route path="/packs" element={<PacksPage />} />
-
-        {/* 測驗頁 */}
         <Route path="/quiz" element={<QuizPage />} />
-
-        {/* 家長報告頁 */}
-        <Route path="/report" element={<ParentReportPage />} />
-
-        {/* 題庫上載頁（老師專用） */}
         <Route path="/upload" element={<UploadPage />} />
 
-        {/* 價格與方案頁 */}
+        {/* 方案與收費頁（Finish 後會 navigate 到這裡） */}
         <Route path="/pricing" element={<PricingPage />} />
 
-        {/* 無效路徑 → 回 packs */}
+        {/* 結帳流程 */}
+        <Route path="/checkout" element={<CheckoutPage />} />
+        <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
+
+        {/* 家長報告頁 */}
+        <Route path="/parent/report/:id" element={<ParentReportPage />} />
+
+        {/* 其他未匹配路由一律導回 /packs */}
         <Route path="*" element={<Navigate to="/packs" replace />} />
       </Routes>
     </BrowserRouter>
   );
 }
+
