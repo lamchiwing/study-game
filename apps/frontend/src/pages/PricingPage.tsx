@@ -16,6 +16,12 @@ const GRADES = [
   { value: "grade6", label: "小六" },
 ];
 
+// 從環境變數讀取 Stripe Checkout / Payment Link 連結
+const STARTER_CHECKOUT_URL =
+  (import.meta.env.VITE_STRIPE_STARTER_URL as string | undefined) ?? "";
+const PRO_CHECKOUT_URL =
+  (import.meta.env.VITE_STRIPE_PRO_URL as string | undefined) ?? "";
+
 export default function PricingPage() {
   const navigate = useNavigate();
   const [sp] = useSearchParams();
@@ -29,26 +35,48 @@ export default function PricingPage() {
   const [starterSubject, setStarterSubject] = useState(subjectFromQuery);
   const [starterGrade, setStarterGrade] = useState(gradeFromQuery);
 
-  // 產生 checkout 連結（Starter）
-  const starterHref = useMemo(() => {
+  // 只是用來顯示／debug（真正跳轉用 goStarter 裏面）
+  const starterPreviewHref = useMemo(() => {
     const qs = new URLSearchParams({
       plan: "starter",
       subject: starterSubject,
       grade: starterGrade,
     });
-    if (slugFromQuery) {
-      qs.set("slug", slugFromQuery);
-    }
+    if (slugFromQuery) qs.set("slug", slugFromQuery);
     return `/checkout?${qs.toString()}`;
   }, [starterSubject, starterGrade, slugFromQuery]);
 
-  const goStarter = () => navigate(starterHref);
+  // 🔹 Starter：直接跳去 Stripe（用 VITE_STRIPE_STARTER_URL）
+  const goStarter = () => {
+    if (!STARTER_CHECKOUT_URL) {
+      alert("尚未設定 Starter 付款連結，請聯絡網站管理員。");
+      return;
+    }
 
-  // Pro 方案：同樣把 slug 帶過去（subject/grade 由後台自己決定要點用）
+    // 如果你用 Payment Link，可以附加一些 query，之後 Stripe 成功頁再帶回來
+    const url = new URL(STARTER_CHECKOUT_URL);
+
+    // 方便在成功 redirect URL 裏面識別
+    if (slugFromQuery) url.searchParams.set("slug", slugFromQuery);
+    url.searchParams.set("subject", starterSubject);
+    url.searchParams.set("grade", starterGrade);
+
+    // 直接跳轉到 Stripe
+    window.location.href = url.toString();
+  };
+
+  // 🔹 Pro：直接跳去 Stripe（用 VITE_STRIPE_PRO_URL）
   const goPro = () => {
-    const qs = new URLSearchParams({ plan: "pro" });
-    if (slugFromQuery) qs.set("slug", slugFromQuery);
-    navigate(`/checkout?${qs.toString()}`);
+    if (!PRO_CHECKOUT_URL) {
+      alert("尚未設定 Pro 付款連結，請聯絡網站管理員。");
+      return;
+    }
+
+    const url = new URL(PRO_CHECKOUT_URL);
+    if (slugFromQuery) url.searchParams.set("slug", slugFromQuery);
+    url.searchParams.set("plan", "pro");
+
+    window.location.href = url.toString();
   };
 
   return (
@@ -129,6 +157,11 @@ export default function PricingPage() {
           >
             前往購買
           </button>
+
+          {/* 如有需要，可以暫時顯示 debug 用（可刪） */}
+          {/* <div className="mt-2 text-xs text-gray-400 break-all">
+            debug: 將會購買：{starterSubject} / {starterGrade}（原本 checkout: {starterPreviewHref}）
+          </div> */}
         </div>
 
         {/* Pro */}
