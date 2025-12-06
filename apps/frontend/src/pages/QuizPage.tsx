@@ -380,40 +380,41 @@ export default function QuizPage() {
   }
 
   async function onClickSendReport() {
-    if (sending) return;
-    if (!reportEmail.trim()) {
-      alert("請輸入收件電郵");
-      return;
-    }
-
-    setSending(true);
-    try {
-      const ok = await sendReportEmail({
-        slug: normSlug, // ✅ 使用正規化 slug
-        toEmail: reportEmail,
-        studentName: reportName || "學生",
-        score,
-        total,
-        onInfo: (m) => alert(m),
-        onError: (m) => alert(m),
-        onRequireUpgrade: () => {
-          const q = new URLSearchParams({
-            from: "report",
-            ...(subject ? { subject } : {}),
-            ...(grade ? { grade } : {}),
-          });
-          navigate(`/pricing?${q.toString()}`);
-        },
-      });
-
-      if (ok) {
-        alert("報告已寄出！");
-        setReportEmail("");
-      }
-    } finally {
-      setSending(false);
-    }
+  if (sending) return;
+  if (!reportEmail.trim()) {
+    alert("請輸入收件電郵");
+    return;
   }
+
+  setSending(true);
+  try {
+    const ok = await sendReportEmail({
+      slug: normSlug, // ✅ 使用正規化 slug
+      toEmail: reportEmail,
+      studentName: reportName || "學生",
+      score,
+      total,
+      onInfo: (m) => alert(m),
+      onError: (m) => alert(m),
+      onRequireUpgrade: () => {
+        const q = new URLSearchParams({
+          from: "report",
+          slug: normSlug,               // 🔴 新增：一定要帶 slug
+          ...(subject ? { subject } : {}),
+          ...(grade ? { grade } : {}),
+        });
+        navigate(`/pricing?${q.toString()}`);
+      },
+    });
+
+    if (ok) {
+      alert("報告已寄出！");
+      setReportEmail("");
+    }
+  } finally {
+    setSending(false);
+  }
+}
 
   const nextQ = () =>
     idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true);
