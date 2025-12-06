@@ -266,7 +266,7 @@ export default function QuizPage() {
   const { subject, grade } = useMemo(() => parseSubjectGrade(normSlug), [normSlug]);
 
   // 是否已解鎖此科目＋年級
-  const [unlocked, setUnlocked] = useState(false);
+  const [unlocked, setUnlocked] = useState(() => isPackUnlocked(subject, grade));
 
   // 支援從 /quiz?slug=...&unlock=1 回來後寫入 localStorage 解鎖
   useEffect(() => {
