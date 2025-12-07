@@ -1,8 +1,8 @@
-# study-game/apps/backend/models.py
-from datetime import datetime, timedelta
+# apps/backend/models.py
+from datetime import datetime
 from sqlalchemy import Column, Integer, String, DateTime, Boolean
-from sqlalchemy.orm import relationship
 from .database import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -16,11 +16,12 @@ class User(Base):
     starter_subject = Column(String, nullable=True)  # e.g. "chinese"
     starter_grade = Column(String, nullable=True)    # e.g. "grade3"
 
+
 class LoginCode(Base):
     __tablename__ = "login_codes"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, index=True, nullable=False)
-    code = Column(String, nullable=False)  # 可加 hash，簡化先明文
+    code = Column(String, nullable=False)  # 可以之後改為 hash
     expires_at = Column(DateTime, nullable=False)
     used = Column(Boolean, default=False)
