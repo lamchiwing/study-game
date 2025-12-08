@@ -1,52 +1,52 @@
+// apps/frontend/src/App.tsx
 import React from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
+
 import Navbar from "./components/Navbar";
-import LoginPage from "./pages/LoginPage";
-// === 頁面 ===
 import PacksPage from "./pages/PacksPage";
 import QuizPage from "./pages/QuizPage";
-import UploadPage from "./pages/UploadPage";
-import ParentReportPage from "./pages/ParentReportPage";
 import PricingPage from "./pages/PricingPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import CheckoutSuccessPage from "./pages/CheckoutSuccessPage";
+import LoginPage from "./pages/LoginPage";
 
-function App() {
+const App: React.FC = () => {
   return (
-    <BrowserRouter>
+    <div className="min-h-screen bg-slate-50">
+      {/* 全站頂部 */}
       <Navbar />
-      <Routes>
-        {/* 你的其它 routes */}
-        <Route path="/login" element={<LoginPage />} />
-        {/* /packs, /quiz, /pricing 等 */}
-      </Routes>
-    </BrowserRouter>
+
+      {/* 主要內容 */}
+      <main className="mx-auto max-w-5xl px-4 py-6">
+        <Routes>
+          {/* default → /packs */}
+          <Route path="/" element={<Navigate to="/packs" replace />} />
+
+          {/* 題目列表 */}
+          <Route path="/packs" element={<PacksPage />} />
+
+          {/* 測驗頁（用 ?slug=...） */}
+          <Route path="/quiz" element={<QuizPage />} />
+
+          {/* 收費方案 */}
+          <Route path="/pricing" element={<PricingPage />} />
+
+          {/* Stripe 付款頁（backend create-checkout-session 之後 redirect） */}
+          <Route path="/checkout" element={<CheckoutPage />} />
+          <Route
+            path="/checkout/success"
+            element={<CheckoutSuccessPage />}
+          />
+
+          {/* 家長登入（email + 驗證碼） */}
+          <Route path="/login" element={<LoginPage />} />
+
+          {/* fallback：未知 path → /packs */}
+          <Route path="*" element={<Navigate to="/packs" replace />} />
+        </Routes>
+      </main>
+    </div>
   );
-}
+};
 
-export default function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route index element={<Navigate to="/packs" replace />} />
-        <Route path="/packs" element={<PacksPage />} />
-        <Route path="/quiz" element={<QuizPage />} />
-        <Route path="/upload" element={<UploadPage />} />
-
-        {/* 方案與收費頁（Finish 後會 navigate 到這裡） */}
-        <Route path="/pricing" element={<PricingPage />} />
-
-        {/* 結帳流程 */}
-        <Route path="/checkout" element={<CheckoutPage />} />
-        <Route path="/checkout/success" element={<CheckoutSuccessPage />} />
-
-        {/* 家長報告頁 */}
-        <Route path="/parent/report/:id" element={<ParentReportPage />} />
-
-        {/* 其他未匹配路由一律導回 /packs */}
-        <Route path="*" element={<Navigate to="/packs" replace />} />
-      </Routes>
-    </BrowserRouter>
-  );
-}
-
+export default App;
