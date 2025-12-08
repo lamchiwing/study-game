@@ -1,6 +1,11 @@
 # apps/backend/app/main.py
 from __future__ import annotations
-import os, io, csv, random, re
+
+import os
+import io
+import csv
+import random
+import re
 from typing import Optional, List, Dict, Any
 
 import boto3
@@ -12,10 +17,16 @@ from fastapi.middleware.cors import CORSMiddleware
 # ✅ 主要路由
 from .routers.report import router as report_router
 from .billing_stripe import router as billing_router
+
+# ✅ Auth router（來自上層 backend/auth）
+from ..auth import auth_router
+
+# ✅ entitlements（有可能本地無此檔案，所以 try/except）
 try:
     from .entitlements import router as entitlements_router
 except Exception:
     entitlements_router = None
+
 
 # =========================================================
 # 基本設定
@@ -28,17 +39,22 @@ app = FastAPI(
 # --- CORS ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://mypenisblue.com", "https://www.mypenisblue.com"],
+    allow_origins=[
+        "https://mypenisblue.com",
+        "https://www.mypenisblue.com",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # =========================================================
-# Include Routers
+# Include Routers（統一走 /api 前綴）
 # =========================================================
 app.include_router(report_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
+app.include_router(auth_router, prefix="/api")          # /api/auth/...
+
 if entitlements_router:
     app.include_router(entitlements_router, prefix="/api")
 
@@ -49,13 +65,16 @@ if entitlements_router:
 def root():
     return "study-game-back OK"
 
+
 @app.get("/health")
 def health():
     return {"status": "healthy"}
 
+
 @app.get("/version")
 def version():
     return {"version": os.getenv("APP_VERSION", "0.1.0")}
+
 
 # =========================================================
 # S3: packs / quiz / upload
@@ -65,6 +84,7 @@ def need(name: str) -> str:
     if not v:
         raise RuntimeError(f"Missing environment variable: {name}")
     return v
+
 
 S3_BUCKET = need("S3_BUCKET")
 S3_ACCESS_KEY = need("S3_ACCESS_KEY")
@@ -76,11 +96,12 @@ s3 = boto3.client(
     aws_access_key_id=S3_ACCESS_KEY,
     aws_secret_access_key=S3_SECRET_KEY,
     region_name=os.getenv("S3_REGION", "auto"),
-    config=Config(s3={"addressing_style": "path"}),   # ✅ 改這行
+    config=Config(s3={"addressing_style": "path"}),
 )
 
 PREFIX = "packs/"
 _slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
+
 
 def validate_slug(slug: str) -> str:
     slug = (slug or "").strip().strip("/")
@@ -88,8 +109,10 @@ def validate_slug(slug: str) -> str:
         raise HTTPException(status_code=400, detail="invalid slug")
     return slug
 
+
 def slug_to_key(slug: str) -> str:
     return f"{PREFIX}{slug}.csv"
+
 
 def smart_decode(b: bytes) -> str:
     for enc in ("utf-8-sig", "utf-8", "cp950", "big5", "gb18030"):
@@ -98,6 +121,7 @@ def smart_decode(b: bytes) -> str:
         except Exception:
             continue
     return b.decode("utf-8", errors="replace")
+
 
 # =========================================================
 # Upload / Packs / Quiz Endpoints
@@ -125,7 +149,7 @@ async def upload_csv(slug: str, file: UploadFile = File(...)):
             Bucket=S3_BUCKET,
             Key=key,
             Body=content,
-            ContentType="text/csv"
+            ContentType="text/csv",
         )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"S3 put_object failed: {e}")
@@ -136,7 +160,7 @@ async def upload_csv(slug: str, file: UploadFile = File(...)):
         "slug": slug,
         "key": key,
         "url": f"https://{S3_BUCKET}.r2.cloudflarestorage.com/{key}",
-        "size": len(content)
+        "size": len(content),
     }
 
 
@@ -151,17 +175,25 @@ def list_packs():
             key = obj["Key"]
             if not key.endswith(".csv"):
                 continue
-            slug = key[len(PREFIX):-4]
+            slug = key[len(PREFIX) : -4]
             parts = slug.split("/")
             title = parts[-1].replace("-", " ").title() if parts else slug
             subject = parts[0] if len(parts) > 0 else ""
             grade = parts[1] if len(parts) > 1 else ""
-            items.append({"slug": slug, "title": title, "subject": subject, "grade": grade})
+            items.append(
+                {
+                    "slug": slug,
+                    "title": title,
+                    "subject": subject,
+                    "grade": grade,
+                }
+            )
         if resp.get("IsTruncated") and resp.get("NextContinuationToken"):
             kwargs["ContinuationToken"] = resp["NextContinuationToken"]
         else:
             break
     return items
+
 
 @app.get("/quiz")
 @app.get("/api/quiz")
@@ -175,14 +207,22 @@ def get_quiz(
     try:
         slug = validate_slug(slug)
     except HTTPException:
-        return JSONResponse({"title": "", "list": []}, media_type="application/json; charset=utf-8")
+        return JSONResponse(
+            {"title": "", "list": []},
+            media_type="application/json; charset=utf-8",
+        )
 
     key = slug_to_key(slug)
     try:
         obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
     except Exception:
         return JSONResponse(
-            {"title": "", "list": [], "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": "s3 get_object failed"},
+            {
+                "title": "",
+                "list": [],
+                "usedUrl": f"s3://{S3_BUCKET}/{key}",
+                "debug": "s3 get_object failed",
+            },
             media_type="application/json; charset=utf-8",
         )
 
@@ -199,23 +239,28 @@ def get_quiz(
 
     qs: List[Dict[str, Any]] = []
     for i, r in enumerate(rows, start=1):
-        qs.append({
-            "id":       r.get("id") or str(i),
-            "type":     r.get("type") or r.get("kind") or "",
-            "question": r.get("question") or r.get("題目") or "",
-            "choiceA":  r.get("choiceA") or r.get("A") or "",
-            "choiceB":  r.get("choiceB") or r.get("B") or "",
-            "choiceC":  r.get("choiceC") or r.get("C") or "",
-            "choiceD":  r.get("choiceD") or r.get("D") or "",
-            "answer":   r.get("answer")  or r.get("答案") or "",
-            "answers":  r.get("answers") or "",
-            "explain":  r.get("explain") or r.get("解析") or "",
-            "image":    r.get("image") or "",
-            "pairs":     r.get("pairs") or r.get("Pairs") or "",
-            "left":      r.get("left") or r.get("Left") or "",
-            "right":     r.get("right") or r.get("Right") or "",
-            "answerMap": r.get("answerMap") or r.get("map") or r.get("index") or "",
-        })
+        qs.append(
+            {
+                "id": r.get("id") or str(i),
+                "type": r.get("type") or r.get("kind") or "",
+                "question": r.get("question") or r.get("題目") or "",
+                "choiceA": r.get("choiceA") or r.get("A") or "",
+                "choiceB": r.get("choiceB") or r.get("B") or "",
+                "choiceC": r.get("choiceC") or r.get("C") or "",
+                "choiceD": r.get("choiceD") or r.get("D") or "",
+                "answer": r.get("answer") or r.get("答案") or "",
+                "answers": r.get("answers") or "",
+                "explain": r.get("explain") or r.get("解析") or "",
+                "image": r.get("image") or "",
+                "pairs": r.get("pairs") or r.get("Pairs") or "",
+                "left": r.get("left") or r.get("Left") or "",
+                "right": r.get("right") or r.get("Right") or "",
+                "answerMap": r.get("answerMap")
+                or r.get("map")
+                or r.get("index")
+                or "",
+            }
+        )
 
     total = len(qs)
     picked = 0
@@ -225,14 +270,23 @@ def get_quiz(
             k = min(max(1, n), total)
         else:
             lo, hi = sorted([nmin, nmax])
-            lo = max(1, lo); hi = max(lo, hi)
+            lo = max(1, lo)
+            hi = max(lo, hi)
             k = min(rnd.randint(lo, hi), total)
-        qs_copy = qs[:]; rnd.shuffle(qs_copy); qs = qs_copy[:k]; picked = len(qs)
+        qs_copy = qs[:]
+        rnd.shuffle(qs_copy)
+        qs = qs_copy[:k]
+        picked = len(qs)
     else:
         qs = []
 
     debug_msg = f"rows={total}, picked={picked}" + (f", seed={seed}" if seed else "")
     return JSONResponse(
-        {"title": pack_title, "list": qs, "usedUrl": f"s3://{S3_BUCKET}/{key}", "debug": debug_msg},
+        {
+            "title": pack_title,
+            "list": qs,
+            "usedUrl": f"s3://{S3_BUCKET}/{key}",
+            "debug": debug_msg,
+        },
         media_type="application/json; charset=utf-8",
     )
