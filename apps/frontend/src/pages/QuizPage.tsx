@@ -11,6 +11,7 @@ import {
   gradeZh,
   prettyFromSlug,
 } from "../data/titles";
+import { useAuth } from "../hooks/useAuth";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/+$/, "") ||
@@ -112,7 +113,12 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
 
   // MCQ
   if (t === "mcq") {
-    const choices = [r.choiceA ?? "", r.choiceB ?? "", r.choiceC ?? "", r.choiceD ?? ""];
+    const choices = [
+      r.choiceA ?? "",
+      r.choiceB ?? "",
+      r.choiceC ?? "",
+      r.choiceD ?? "",
+    ];
     let answerLetter: "A" | "B" | "C" | "D" | undefined;
     let answerText: string | undefined;
 
@@ -161,7 +167,10 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
         acc = [];
       }
     } else if (r.answers) {
-      acc = r.answers.split("|").map((x) => x.trim()).filter(Boolean);
+      acc = r.answers
+        .split("|")
+        .map((x) => x.trim())
+        .filter(Boolean);
     } else if (r.answer) {
       acc = [r.answer];
     }
@@ -214,7 +223,10 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
   const n = Math.min(left.length, right.length);
   const L = left.slice(0, n);
   const R = right.slice(0, n);
-  const A = answerMap.length === n ? answerMap.slice(0, n) : Array.from({ length: n }, (_, i) => i);
+  const A =
+    answerMap.length === n
+      ? answerMap.slice(0, n)
+      : Array.from({ length: n }, (_, i) => i);
 
   return {
     id: r.id || String(idx + 1),
@@ -228,17 +240,11 @@ function mapRowToQuestion(r: ApiQuestionRow, idx: number): Question {
   };
 }
 
-// 簡單本地判斷：此科目＋年級是否已解鎖（付費）
-function isPackUnlocked(subject?: string, grade?: string): boolean {
-  if (!subject || !grade) return false;
-  const key = `sg_paid_${subject}_${grade}`;
-  return localStorage.getItem(key) === "1";
-}
-
 /* ======================= Component ======================= */
 export default function QuizPage() {
   const [sp] = useSearchParams();
   const navigate = useNavigate();
+  const { user, hasAccessToPack } = useAuth();
 
   // ✅ 唯一的 slug 來源：規範化後的 normSlug
   const raw = sp.get("slug") || "";
@@ -260,23 +266,17 @@ export default function QuizPage() {
   const [reportName, setReportName] = useState("");
   const [sending, setSending] = useState(false);
 
-  const userId = useMemo(() => localStorage.getItem("uid") || "", []);
+  // 解析 slug → subject / grade（用於 pricing 參數 & 解鎖判斷）
+  const { subject, grade } = useMemo(
+    () => parseSubjectGrade(normSlug),
+    [normSlug]
+  );
 
-  // 解析 slug → subject / grade（用於 pricing 參數 & 解鎖 key）
-  const { subject, grade } = useMemo(() => parseSubjectGrade(normSlug), [normSlug]);
-
-  // 是否已解鎖此科目＋年級
-  const [unlocked, setUnlocked] = useState(() => isPackUnlocked(subject, grade));
-
-  // 支援從 /quiz?slug=...&unlock=1 回來後寫入 localStorage 解鎖
-  useEffect(() => {
-    const unlockFlag = sp.get("unlock");
-    if (unlockFlag === "1" && subject && grade) {
-      const key = `sg_paid_${subject}_${grade}`;
-      localStorage.setItem(key, "1");
-    }
-    setUnlocked(isPackUnlocked(subject, grade));
-  }, [sp, subject, grade]);
+  // 是否已解鎖此科目＋年級（用真正的用戶 plan）
+  const unlocked = hasAccessToPack(
+    subject || "",
+    grade || ""
+  );
 
   // 取題
   useEffect(() => {
@@ -292,7 +292,9 @@ export default function QuizPage() {
         setDebug(ret?.debug || null);
         setPackTitle(ret?.title || "");
 
-        const list = Array.isArray(ret?.list) ? ret.list.map(mapRowToQuestion) : [];
+        const list = Array.isArray(ret?.list)
+          ? ret.list.map(mapRowToQuestion)
+          : [];
         setQuestions(list);
 
         setAnswers(
@@ -300,7 +302,8 @@ export default function QuizPage() {
             if (q.type === "mcq") return null;
             if (q.type === "tf") return null;
             if (q.type === "fill") return "";
-            if (q.type === "match") return Array((q as QMatch).left.length).fill(null);
+            if (q.type === "match")
+              return Array((q as QMatch).left.length).fill(null);
             return null;
           })
         );
@@ -380,41 +383,41 @@ export default function QuizPage() {
   }
 
   async function onClickSendReport() {
-  if (sending) return;
-  if (!reportEmail.trim()) {
-    alert("請輸入收件電郵");
-    return;
-  }
-
-  setSending(true);
-  try {
-    const ok = await sendReportEmail({
-      slug: normSlug, // ✅ 使用正規化 slug
-      toEmail: reportEmail,
-      studentName: reportName || "學生",
-      score,
-      total,
-      onInfo: (m) => alert(m),
-      onError: (m) => alert(m),
-      onRequireUpgrade: () => {
-        const q = new URLSearchParams({
-          from: "report",
-          slug: normSlug,               // 🔴 新增：一定要帶 slug
-          ...(subject ? { subject } : {}),
-          ...(grade ? { grade } : {}),
-        });
-        navigate(`/pricing?${q.toString()}`);
-      },
-    });
-
-    if (ok) {
-      alert("報告已寄出！");
-      setReportEmail("");
+    if (sending) return;
+    if (!reportEmail.trim()) {
+      alert("請輸入收件電郵");
+      return;
     }
-  } finally {
-    setSending(false);
+
+    setSending(true);
+    try {
+      const ok = await sendReportEmail({
+        slug: normSlug, // ✅ 使用正規化 slug
+        toEmail: reportEmail,
+        studentName: reportName || "學生",
+        score,
+        total,
+        onInfo: (m) => alert(m),
+        onError: (m) => alert(m),
+        onRequireUpgrade: () => {
+          const q = new URLSearchParams({
+            from: "report",
+            slug: normSlug,
+            ...(subject ? { subject } : {}),
+            ...(grade ? { grade } : {}),
+          });
+          navigate(`/pricing?${q.toString()}`);
+        },
+      });
+
+      if (ok) {
+        alert("報告已寄出！");
+        setReportEmail("");
+      }
+    } finally {
+      setSending(false);
+    }
   }
-}
 
   const nextQ = () =>
     idx + 1 < questions.length ? setIdx(idx + 1) : setDone(true);
@@ -426,7 +429,8 @@ export default function QuizPage() {
         if (q.type === "mcq") return null;
         if (q.type === "tf") return null;
         if (q.type === "fill") return "";
-        if (q.type === "match") return Array((q as QMatch).left.length).fill(null);
+        if (q.type === "match")
+          return Array((q as QMatch).left.length).fill(null);
         return null;
       })
     );
@@ -609,7 +613,7 @@ export default function QuizPage() {
           {percent}%)
         </div>
 
-        {/* ✅ 這裡開始：答案報告 gating */}
+        {/* ✅ 這裡開始：答案報告 gating（用用戶 plan 判斷） */}
         {unlocked ? (
           <>
             <div className="mt-3 rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -637,7 +641,8 @@ export default function QuizPage() {
                     </div>
 
                     <div className="text-sm">
-                      你的答案： {formatYourAnswer(q, answers[i]) || <em>—</em>}
+                      你的答案：{" "}
+                      {formatYourAnswer(q, answers[i]) || <em>—</em>}
                     </div>
 
                     {!ok && (
@@ -660,8 +665,10 @@ export default function QuizPage() {
           <div className="mt-4 rounded border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
             <div className="font-medium mb-1">想查看「答案報告」？</div>
             <p className="mb-2">
-              目前只顯示總分。購買家長方案後，才可以解鎖每題詳盡答案與解析，並可寄送家長 Email
-              報告。
+              目前只顯示總分。
+              {user
+                ? " 升級 Starter 或 Pro 後，可解鎖每題詳盡答案與解析，並可寄送家長 Email 報告。"
+                : " 請先登入，再升級 Starter 或 Pro，解鎖每題詳盡答案與解析，並可寄送家長 Email 報告。"}
             </p>
             <button
               onClick={() => {
@@ -853,7 +860,9 @@ export default function QuizPage() {
               onClick={() => pickTF(true)}
               disabled={a !== null && a !== undefined && a !== true}
               className={`rounded border px-3 py-2 ${
-                a === true ? "border-black ring-1 ring-black" : "hover:bg-gray-50"
+                a === true
+                  ? "border-black ring-1 ring-black"
+                  : "hover:bg-gray-50"
               } ${
                 a !== null && a !== undefined && a !== true
                   ? "pointer-events-none opacity-50"
@@ -922,11 +931,7 @@ export default function QuizPage() {
                   >
                     <option value="">請選擇</option>
                     {(q as QMatch).right.map((R, ri) => (
-                      <option
-                        key={ri}
-                        value={ri}
-                        disabled={used.has(ri)}
-                      >
+                      <option key={ri} value={ri} disabled={used.has(ri)}>
                         {stripBBCode(R)}
                       </option>
                     ))}
@@ -952,7 +957,8 @@ export default function QuizPage() {
             ? String(a ?? "").trim()
               ? "已填寫"
               : "請填寫答案"
-            : a == null || (Array.isArray(a) && a.some((x) => x == null))
+            : a == null ||
+              (Array.isArray(a) && a.some((x) => x == null))
             ? "請選擇答案"
             : "已選擇"}
         </div>
