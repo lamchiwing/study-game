@@ -49,7 +49,7 @@ app.include_router(report_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 
-if entitlements_router is not None:
+if entitlements_router :
   app.include_router(entitlements_router, prefix="/api")
 
 
