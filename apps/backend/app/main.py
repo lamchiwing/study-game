@@ -42,6 +42,8 @@ app.add_middleware(
     allow_origins=[
         "https://mypenisblue.com",
         "https://www.mypenisblue.com",
+        # 如果要本地 dev，可以加：
+        # "http://localhost:5173",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -57,6 +59,7 @@ app.include_router(auth_router, prefix="/api")          # /api/auth/...
 
 if entitlements_router:
     app.include_router(entitlements_router, prefix="/api")
+
 
 # =========================================================
 # Health / Version
