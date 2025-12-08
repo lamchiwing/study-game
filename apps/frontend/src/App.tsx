@@ -1,6 +1,7 @@
 import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-
+import Navbar from "./components/Navbar";
+import LoginPage from "./pages/LoginPage";
 // === 頁面 ===
 import PacksPage from "./pages/PacksPage";
 import QuizPage from "./pages/QuizPage";
@@ -9,6 +10,19 @@ import ParentReportPage from "./pages/ParentReportPage";
 import PricingPage from "./pages/PricingPage";
 import CheckoutPage from "./pages/CheckoutPage";
 import CheckoutSuccessPage from "./pages/CheckoutSuccessPage";
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Navbar />
+      <Routes>
+        {/* 你的其它 routes */}
+        <Route path="/login" element={<LoginPage />} />
+        {/* /packs, /quiz, /pricing 等 */}
+      </Routes>
+    </BrowserRouter>
+  );
+}
 
 export default function App() {
   return (
