@@ -14,24 +14,31 @@ if not JWT_SECRET:
     raise RuntimeError("JWT_SECRET is not set in environment variables")
 
 
+# apps/backend/auth/auth_utils.py
+from datetime import datetime, timedelta
+from typing import Optional
+import os
+import jwt
+
+JWT_SECRET = os.environ["JWT_SECRET"]          # 👈 必須在 Render 設定 env
+JWT_ALG = os.environ.get("JWT_ALG", "HS256")   # 默认 HS256
+
+
 def create_access_token(
-    user_id: int,
-    email: str,
-    expires_minutes: int = 60 * 24 * 30,  # 預設 30 日
-) -> str:
-    now = datetime.utcnow()
-    payload: Dict[str, Any] = {
-        "sub": str(user_id),
-        "email": email,
-        "iat": now,
-        "exp": now + timedelta(minutes=expires_minutes),
-    }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+  user_id: int,
+  email: str,
+  expires_minutes: int = 60 * 24 * 30  # 30 日
+):
+  payload = {
+    "sub": str(user_id),
+    "email": email,
+    "exp": datetime.utcnow() + timedelta(minutes=expires_minutes),
+  }
+  return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
 def decode_token(token: str) -> Optional[dict]:
-    try:
-        data = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
-        return data
-    except jwt.PyJWTError:
-        return None
+  try:
+    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+  except jwt.PyJWTError:
+    return None
