@@ -14,51 +14,43 @@ from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-# ✅ 主要路由
 from .routers.report import router as report_router
 from .billing_stripe import router as billing_router
 
-# ✅ Auth router（來自上層 backend/auth）
-from ..auth import auth_router
+# ✅ 從 sibling package "auth" import
+from auth import auth_router
 
-# ✅ entitlements（有可能本地無此檔案，所以 try/except）
 try:
-    from .entitlements import router as entitlements_router
+  from .entitlements import router as entitlements_router
 except Exception:
-    entitlements_router = None
+  entitlements_router = None
 
 
-# =========================================================
-# 基本設定
-# =========================================================
 app = FastAPI(
-    title="Study Game API",
-    version=os.getenv("APP_VERSION", "0.1.0"),
+  title="Study Game API",
+  version=os.getenv("APP_VERSION", "0.1.0"),
 )
 
-# --- CORS ---
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://mypenisblue.com",
-        "https://www.mypenisblue.com",
-        # 如果要本地 dev，可以加：
-        # "http://localhost:5173",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+  CORSMiddleware,
+  allow_origins=[
+    "https://mypenisblue.com",
+    "https://www.mypenisblue.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+  ],
+  allow_credentials=True,
+  allow_methods=["*"],
+  allow_headers=["*"],
 )
 
-# =========================================================
-# Include Routers（統一走 /api 前綴）
-# =========================================================
+# 👇 統一用 /api prefix
 app.include_router(report_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
-app.include_router(auth_router, prefix="/api")          # /api/auth/...
+app.include_router(auth_router, prefix="/api")
 
-if entitlements_router:
-    app.include_router(entitlements_router, prefix="/api")
+if entitlements_router is not None:
+  app.include_router(entitlements_router, prefix="/api")
 
 
 # =========================================================
