@@ -14,21 +14,36 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .database import Base  # ✅ 共用同一個 Base
+# ✅ 共用同一個 Base（來自 app/database.py）
+from .database import Base
 
 
 class Customer(Base):
+    """
+    儲存前端 user_id（例如 localStorage 裏面的 uid）、email、對應 Stripe customer。
+    一個 user_id 對應一行。
+    """
     __tablename__ = "customers"
 
     # 你之前用的是 user_id 作 primary key（例如從前端 uid）
     user_id: Mapped[str] = mapped_column(String, primary_key=True)
-    email: Mapped[Optional[str]] = mapped_column(String, nullable=True, index=True)
-    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+
+    email: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True,
+        index=True,
+    )
+
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True,
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
     )
+
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True),
         server_default=func.now(),
@@ -37,6 +52,13 @@ class Customer(Base):
 
 
 class Subscription(Base):
+    """
+    儲存每個 Stripe subscription 的狀態：
+    - id: Stripe subscription id（如 sub_XXXX）
+    - user_id: 對應 customers.user_id
+    - price_id: Stripe price id（如 price_XXXX）
+    - status: active / trialing / canceled / incomplete / ...
+    """
     __tablename__ = "subscriptions"
 
     # Stripe subscription id
@@ -49,7 +71,11 @@ class Subscription(Base):
     )
 
     price_id: Mapped[str] = mapped_column(String)  # e.g. price_XXXXX
-    status: Mapped[str] = mapped_column(String)    # active / trialing / canceled / incomplete / ...
+
+    status: Mapped[str] = mapped_column(
+        String,
+        doc="Stripe subscription status: active / trialing / canceled / incomplete / ...",
+    )
 
     current_period_end: Mapped[Optional[datetime]] = mapped_column(
         TIMESTAMP(timezone=True),
@@ -85,10 +111,16 @@ class EntGrant(Base):
         index=True,
     )
 
-    plan: Mapped[str] = mapped_column(String)  # "starter" | "pro"
+    plan: Mapped[str] = mapped_column(
+        String,
+        doc='e.g. "starter" | "pro"',
+    )
 
     # None = 所有科目；否則 "chinese" / "math" / "general" 等
-    subject: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    subject: Mapped[Optional[str]] = mapped_column(
+        String,
+        nullable=True,
+    )
 
     grade_from: Mapped[int] = mapped_column(Integer, default=1)
     grade_to: Mapped[int] = mapped_column(Integer, default=6)
