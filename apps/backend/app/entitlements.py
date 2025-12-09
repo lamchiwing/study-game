@@ -1,9 +1,10 @@
 # apps/backend/app/entitlements.py
 from __future__ import annotations
+
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
-from .db import SessionLocal
+from .database import SessionLocal           # ✅ 用 database，而唔係 db
 from .models import Customer, EntGrant
 
 # === 方案旗標（前端廣告/報告/可見年級判斷用） ==========================
@@ -33,14 +34,18 @@ PLANS: Dict[str, Dict[str, Any]] = {
     },
 }
 
+
 def ads_enabled(plan: str) -> bool:
     return bool(PLANS.get(plan, PLANS["free"])["ads_enabled"])
+
 
 def report_enabled(plan: str) -> bool:
     return bool(PLANS.get(plan, PLANS["free"])["report_enabled"])
 
+
 def max_students(plan: str) -> int:
     return int(PLANS.get(plan, PLANS["free"])["max_students"])
+
 
 def canonical_grade_str(grade: str | int | None) -> str:
     """
@@ -49,6 +54,7 @@ def canonical_grade_str(grade: str | int | None) -> str:
     """
     n = _parse_grade_to_num(grade)
     return f"grade{n}" if n else ""
+
 
 def grade_allowed(plan: str, grade: str | int) -> bool:
     """
@@ -61,16 +67,23 @@ def grade_allowed(plan: str, grade: str | int) -> bool:
     # 空陣列視為不限制（此專案中都給定了清單）
     return (not allowed) or (cg in allowed)
 
+
 # === 工具 ======================================================
 _SUBJ_ALIASES = {
-    "cn": "chinese", "chi": "chinese", "zh": "chinese",
-    "maths": "math", "mathematics": "math",
-    "gen": "general", "gs": "general",
+    "cn": "chinese",
+    "chi": "chinese",
+    "zh": "chinese",
+    "maths": "math",
+    "mathematics": "math",
+    "gen": "general",
+    "gs": "general",
 }
+
 
 def _norm_subject(s: Optional[str]) -> str:
     s = (s or "").strip().lower()
     return _SUBJ_ALIASES.get(s, s) if s else ""
+
 
 def _parse_grade_to_num(grade: Optional[str | int]) -> int:
     """接受 'grade1' / 'g1' / 'p1' / '1' / 1 → 1..6；無效回 0。"""
@@ -88,8 +101,27 @@ def _parse_grade_to_num(grade: Optional[str | int]) -> int:
         g = int(digits) if digits.isdigit() else 0
     return g if 1 <= g <= 6 else 0
 
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _parse_subject_grade_from_slug(slug: str) -> tuple[str, int]:
+    """
+    讓 has_access 亦可接受 slug：
+      - "chinese/grade3/reading-a" → ("chinese", 3)
+      - "math/grade5"             → ("math", 5)
+    """
+    s = (slug or "").strip().strip("/")
+    if not s:
+        return "", 0
+    parts = s.split("/")
+    subject = parts[0] if parts else ""
+    grade_raw: str | int | None = None
+    if len(parts) > 1:
+        grade_raw = parts[1]  # "grade3" 之類
+    return _norm_subject(subject), _parse_grade_to_num(grade_raw)
+
 
 # === 對外 API：顧客 / 授權（存取 Postgres） ======================
 def upsert_customer(user_id: str, email: str | None, stripe_customer_id: str | None):
@@ -101,9 +133,20 @@ def upsert_customer(user_id: str, email: str | None, stripe_customer_id: str | N
             if stripe_customer_id is not None:
                 found.stripe_customer_id = stripe_customer_id
         else:
-            s.add(Customer(user_id=user_id, email=email, stripe_customer_id=stripe_customer_id))
+            s.add(
+                Customer(
+                    user_id=user_id,
+                    email=email,
+                    stripe_customer_id=stripe_customer_id,
+                )
+            )
 
-def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] = None) -> bool:
+
+def add_access(
+    user_id: str,
+    scope: dict,
+    expires_at: Optional[int | datetime] = None,
+) -> bool:
     """
     scope 範例：
       - {"plan":"pro"}  → Pro 通配（科目不限、年級 1..6）
@@ -118,8 +161,8 @@ def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] =
     plan = (scope.get("plan") or "starter").lower()
     subj = _norm_subject(scope.get("subject"))
     g_from = scope.get("grade_from")
-    g_to   = scope.get("grade_to")
-    g_one  = scope.get("grade")
+    g_to = scope.get("grade_to")
+    g_one = scope.get("grade")
 
     # 年級規範化
     if plan == "pro" and not subj and not g_from and not g_to and not g_one:
@@ -133,6 +176,7 @@ def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] =
         else:
             gf = _parse_grade_to_num(g_from)
             gt = _parse_grade_to_num(g_to)
+
         if not (1 <= gf <= 6):
             return False
         if not (1 <= gt <= 6):
@@ -150,8 +194,14 @@ def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] =
 
     # 合併/新增
     with SessionLocal() as s, s.begin():
-        q = s.query(EntGrant).filter(EntGrant.user_id == user_id, EntGrant.plan == plan)
-        q = q.filter(EntGrant.subject.is_(None)) if subj_val is None else q.filter(EntGrant.subject == subj_val)
+        q = s.query(EntGrant).filter(
+            EntGrant.user_id == user_id,
+            EntGrant.plan == plan,
+        )
+        if subj_val is None:
+            q = q.filter(EntGrant.subject.is_(None))
+        else:
+            q = q.filter(EntGrant.subject == subj_val)
 
         merged = False
         for g in q.all():
@@ -159,7 +209,7 @@ def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] =
             if g.grade_to + 1 < gf or gt + 1 < g.grade_from:
                 continue
             g.grade_from = min(g.grade_from, gf)
-            g.grade_to   = max(g.grade_to, gt)
+            g.grade_to = max(g.grade_to, gt)
             # 到期：取較晚（None 視為永久）
             if g.expires_at is None or exp_dt is None:
                 g.expires_at = None
@@ -169,15 +219,18 @@ def add_access(user_id: str, scope: dict, expires_at: Optional[int | datetime] =
             break
 
         if not merged:
-            s.add(EntGrant(
-                user_id=user_id,
-                plan=plan,
-                subject=subj_val,    # None = 通配
-                grade_from=gf,
-                grade_to=gt,
-                expires_at=exp_dt
-            ))
+            s.add(
+                EntGrant(
+                    user_id=user_id,
+                    plan=plan,
+                    subject=subj_val,  # None = 通配
+                    grade_from=gf,
+                    grade_to=gt,
+                    expires_at=exp_dt,
+                )
+            )
     return True
+
 
 def get_entitlement(user_id: Optional[str]) -> Optional[dict]:
     if not user_id:
@@ -194,42 +247,73 @@ def get_entitlement(user_id: Optional[str]) -> Optional[dict]:
                     "subjects": ["*"] if g.subject is None else [g.subject],
                     "grade_from": g.grade_from,
                     "grade_to": g.grade_to,
-                    "expires_at": int(g.expires_at.timestamp()) if g.expires_at else None,
+                    "expires_at": int(g.expires_at.timestamp())
+                    if g.expires_at
+                    else None,
                 }
                 for g in grants
             ]
         }
 
-def has_access(user_id: str, subject: str, grade: str | int) -> bool:
+
+def has_access(
+    user_id: str,
+    subject_or_slug: str,
+    grade: str | int | None = None,
+) -> bool:
     """
     真正的授權判斷：必須命中一筆有效 grant（未過期 + subject 相容 + 年級區間包含）。
-    注意：PLANS 的 allowed_grades 只建議用於 UI/入口層級；此處仍以 grants 為準。
+
+    ✅ 兼容兩種用法：
+      1) has_access(user_id, "chinese", "grade3")
+      2) has_access(user_id, "chinese/grade3/reading-a")（第二參數當 slug，用唔傳 grade）
     """
-    subj = _norm_subject(subject)
-    gnum = _parse_grade_to_num(grade)
+    if not user_id:
+        return False
+
+    # 如果 grade 無傳，而且 subject_or_slug 裏面有 "/"，當 slug 用：
+    subj = ""
+    gnum = 0
+    if grade is None and "/" in (subject_or_slug or ""):
+        subj, gnum = _parse_subject_grade_from_slug(subject_or_slug)
+    else:
+        subj = _norm_subject(subject_or_slug)
+        gnum = _parse_grade_to_num(grade)
+
     if gnum == 0:
         return False
+
     now = _now()
     with SessionLocal() as s:
         q = (
             s.query(EntGrant)
-             .filter(EntGrant.user_id == user_id)
-             .filter((EntGrant.expires_at.is_(None)) | (EntGrant.expires_at > now))
-             .filter(EntGrant.grade_from <= gnum, EntGrant.grade_to >= gnum)
+            .filter(EntGrant.user_id == user_id)
+            .filter((EntGrant.expires_at.is_(None)) | (EntGrant.expires_at > now))
+            .filter(EntGrant.grade_from <= gnum, EntGrant.grade_to >= gnum)
         )
         # subject 命中：通配(None) 或等於
         q = q.filter((EntGrant.subject.is_(None)) | (EntGrant.subject == subj))
         return s.query(q.exists()).scalar() or False
 
+
 def current_plan(user_id: str) -> str:
     """推論目前最高等級方案：有 pro grant 視為 pro；否則 starter；都沒有則 free。"""
+    if not user_id:
+        return "free"
+
     with SessionLocal() as s:
         has_pro = s.query(
-            s.query(EntGrant).filter(EntGrant.user_id == user_id, EntGrant.plan == "pro").exists()
+            s.query(EntGrant)
+            .filter(EntGrant.user_id == user_id, EntGrant.plan == "pro")
+            .exists()
         ).scalar()
         if has_pro:
             return "pro"
+
         has_starter = s.query(
-            s.query(EntGrant).filter(EntGrant.user_id == user_id, EntGrant.plan == "starter").exists()
+            s.query(EntGrant)
+            .filter(EntGrant.user_id == user_id, EntGrant.plan == "starter")
+            .exists()
         ).scalar()
+
         return "starter" if has_starter else "free"
