@@ -6,14 +6,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from .database import get_db              
-from .models import User, LoginCode       
+# ✅ 注意：呢度全部用「頂層」import，唔再用 `..`
+from database import get_db          # apps/backend/database.py
+from models import User, LoginCode   # apps/backend/models.py
 from .auth_utils import create_access_token
-from .mailer_sendgrid import send_email   
+from mailer_sendgrid import send_email  # apps/backend/mailer_sendgrid.py
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+# ================== Schemas ==================
 class RequestCodeIn(BaseModel):
   email: EmailStr
 
@@ -28,7 +30,7 @@ def request_code(body: RequestCodeIn, db: Session = Depends(get_db)):
   db.add(login_code)
   db.commit()
 
-  # 寄 email（簡單版）
+  # 寄 email
   send_email(
     to=email,
     subject="你的登入驗證碼",
@@ -67,6 +69,7 @@ def verify_code(body: VerifyCodeIn, db: Session = Depends(get_db)):
     .order_by(LoginCode.id.desc())
     .first()
   )
+
   if not login_code:
     raise HTTPException(status_code=400, detail="驗證碼錯誤或已過期")
 
@@ -81,6 +84,7 @@ def verify_code(body: VerifyCodeIn, db: Session = Depends(get_db)):
   db.refresh(user)
 
   token = create_access_token(user_id=user.id, email=user.email)
+
   return AuthOut(
     token=token,
     email=user.email,
