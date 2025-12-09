@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-from ..database import get_db              # 👈 從上層 backend.database
-from ..models import User, LoginCode       # 👈 從上層 backend.models
+from .database import get_db              
+from .models import User, LoginCode       
 from .auth_utils import create_access_token
-from ..mailer_sendgrid import send_email   # 👈 你原本已經有類似 module
+from .mailer_sendgrid import send_email   
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
