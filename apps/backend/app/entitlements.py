@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Optional, Dict, Any
 from datetime import datetime, timezone
 
-from .database import SessionLocal           # ✅ 用 database，而唔係 db
+from database import SessionLocal          # ✅ 改：由 apps/backend/database.py 引入
 from .models import Customer, EntGrant
 
 # === 方案旗標（前端廣告/報告/可見年級判斷用） ==========================
