@@ -5,14 +5,14 @@ import os
 from typing import Generator
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
 # 例：postgresql+psycopg://user:pass@host:5432/dbname
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise RuntimeError("Missing DATABASE_URL environment variable")
 
-# 建立 Engine
+# 建立 Engine（prod 建議唔開 echo，避免太多 SQL log）
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
@@ -33,13 +33,17 @@ class Base(DeclarativeBase):
     pass
 
 
-def get_db() -> Generator:
+def get_db() -> Generator[Session, None, None]:
     """
     FastAPI 依賴注入用：
-        def some_route(db: Session = Depends(get_db)):
+        from sqlalchemy.orm import Session
+        from fastapi import Depends
+
+        @router.get("/x")
+        def handler(db: Session = Depends(get_db)):
             ...
     """
-    db = SessionLocal()
+    db: Session = SessionLocal()
     try:
         yield db
     finally:
