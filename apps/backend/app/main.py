@@ -13,7 +13,7 @@ from botocore.config import Config
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import get_db
+from database import get_db
 
 from .routers.report import router as report_router
 from .billing_stripe import router as billing_router
