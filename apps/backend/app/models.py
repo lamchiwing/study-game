@@ -15,7 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 # ✅ 共用同一個 Base（來自 app/database.py）
-from .database import Base
+from database import Base
 
 
 class Customer(Base):
