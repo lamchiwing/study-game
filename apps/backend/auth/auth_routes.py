@@ -1,94 +1,124 @@
 # apps/backend/auth/auth_routes.py
+from __future__ import annotations
+
 from datetime import datetime, timedelta
 import random
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
-# ✅ 注意：呢度全部用「頂層」import，唔再用 `..`
+# ✅ 重要：Render 用 `uvicorn app.main:app`，root = apps/backend
+# 所以以下用「頂層 import」係正確（唔好用 .. 相對路徑）
 from database import get_db          # apps/backend/database.py
 from models import User, LoginCode   # apps/backend/models.py
-from .auth_utils import create_access_token
 from mailer_sendgrid import send_email  # apps/backend/mailer_sendgrid.py
+
+from .auth_utils import create_access_token
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 # ================== Schemas ==================
 class RequestCodeIn(BaseModel):
-  email: EmailStr
-
-
-@router.post("/request-code")
-def request_code(body: RequestCodeIn, db: Session = Depends(get_db)):
-  email = body.email.lower().strip()
-  code = f"{random.randint(0, 999999):06d}"
-  expires_at = datetime.utcnow() + timedelta(minutes=10)
-
-  login_code = LoginCode(email=email, code=code, expires_at=expires_at)
-  db.add(login_code)
-  db.commit()
-
-  # 寄 email
-  send_email(
-    to=email,
-    subject="你的登入驗證碼",
-    html=f"<p>你的登入驗證碼是：<b>{code}</b>（10 分鐘內有效）</p>",
-  )
-  return {"ok": True}
+    email: EmailStr
 
 
 class VerifyCodeIn(BaseModel):
-  email: EmailStr
-  code: str
+    email: EmailStr
+    code: str
 
 
 class AuthOut(BaseModel):
-  token: str
-  email: EmailStr
-  plan: str
-  starter_subject: str | None
-  starter_grade: str | None
+    token: str
+    email: EmailStr
+    plan: str
+    starter_subject: str | None = None
+    starter_grade: str | None = None
+
+
+# ================== Helpers ==================
+def _clean_email(e: str) -> str:
+    return (e or "").lower().strip()
+
+
+def _clean_code(c: str) -> str:
+    # 允許用戶輸入有空格，例如 "123 456"
+    return "".join(ch for ch in (c or "") if ch.isdigit()).strip()
+
+
+# ================== Routes ==================
+@router.post("/request-code")
+def request_code(body: RequestCodeIn, db: Session = Depends(get_db)):
+    email = _clean_email(body.email)
+    if not email:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="email is required")
+
+    code = f"{random.randint(0, 999999):06d}"
+    expires_at = datetime.utcnow() + timedelta(minutes=10)
+
+    login_code = LoginCode(email=email, code=code, expires_at=expires_at, used=False)
+    db.add(login_code)
+    db.commit()
+
+    # 寄 email（如 sendgrid 失敗，回 502 方便前端提示）
+    try:
+        send_email(
+            to=email,
+            subject="你的登入驗證碼",
+            html=f"<p>你的登入驗證碼是：<b>{code}</b>（10 分鐘內有效）</p>",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"failed to send email: {e}",
+        )
+
+    return {"ok": True}
 
 
 @router.post("/verify-code", response_model=AuthOut)
 def verify_code(body: VerifyCodeIn, db: Session = Depends(get_db)):
-  email = body.email.lower().strip()
-  code = body.code.strip()
+    email = _clean_email(body.email)
+    code = _clean_code(body.code)
 
-  now = datetime.utcnow()
-  login_code = (
-    db.query(LoginCode)
-    .filter(
-      LoginCode.email == email,
-      LoginCode.code == code,
-      LoginCode.used == False,
-      LoginCode.expires_at > now,
+    if not email or not code or len(code) != 6:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="invalid email or code")
+
+    now = datetime.utcnow()
+
+    login_code = (
+        db.query(LoginCode)
+        .filter(
+            LoginCode.email == email,
+            LoginCode.code == code,
+            LoginCode.used.is_(False),
+            LoginCode.expires_at > now,
+        )
+        .order_by(LoginCode.id.desc())
+        .first()
     )
-    .order_by(LoginCode.id.desc())
-    .first()
-  )
+    if not login_code:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="驗證碼錯誤或已過期")
 
-  if not login_code:
-    raise HTTPException(status_code=400, detail="驗證碼錯誤或已過期")
+    # ✅ mark used
+    login_code.used = True
 
-  login_code.used = True
+    # ✅ upsert user
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        user = User(email=email)
+        db.add(user)
 
-  user = db.query(User).filter(User.email == email).first()
-  if not user:
-    user = User(email=email)
-    db.add(user)
+    db.commit()
+    db.refresh(user)
 
-  db.commit()
-  db.refresh(user)
+    token = create_access_token(user_id=user.id, email=user.email)
 
-  token = create_access_token(user_id=user.id, email=user.email)
-
-  return AuthOut(
-    token=token,
-    email=user.email,
-    plan=user.plan,
-    starter_subject=user.starter_subject,
-    starter_grade=user.starter_grade,
-  )
+    return AuthOut(
+        token=token,
+        email=user.email,
+        plan=user.plan or "free",
+        starter_subject=user.starter_subject,
+        starter_grade=user.starter_grade,
+    )
