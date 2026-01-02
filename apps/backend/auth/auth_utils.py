@@ -1,26 +1,47 @@
 # apps/backend/auth/auth_utils.py
-from datetime import datetime, timedelta
-from typing import Optional
+from __future__ import annotations
+
 import os
-import jwt
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
 
-JWT_SECRET = os.environ.get("JWT_SECRET")
-JWT_ALG = os.environ.get("JWT_ALG", "HS256")
+import jwt  # comes from PyJWT
+from fastapi import HTTPException
 
-# 🔒 防止 silent bug（推薦）
-if not JWT_SECRET:
-    raise RuntimeError("❌ JWT_SECRET is not set! Please add it in Render → Environment.")
+JWT_SECRET = os.getenv("JWT_SECRET", "")
+JWT_ALG = os.getenv("JWT_ALG", "HS256")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "43200"))  # 30 days default
 
-def create_access_token(user_id: int, email: str, expires_minutes: int = 60 * 24 * 30):
-    payload = {
+
+def _require_secret() -> str:
+    if not JWT_SECRET:
+        # ✅ 建議要加：部署時冇 SECRET 會直接 fail-fast
+        raise RuntimeError("JWT_SECRET is not set in environment variables")
+    return JWT_SECRET
+
+
+def create_access_token(user_id: str, email: str, extra: Optional[Dict[str, Any]] = None) -> str:
+    secret = _require_secret()
+    now = datetime.now(timezone.utc)
+    exp = now + timedelta(minutes=JWT_EXPIRE_MINUTES)
+
+    payload: Dict[str, Any] = {
         "sub": str(user_id),
         "email": email,
-        "exp": datetime.utcnow() + timedelta(minutes=expires_minutes),
+        "iat": int(now.timestamp()),
+        "exp": int(exp.timestamp()),
     }
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+    if extra:
+        payload.update(extra)
 
-def decode_token(token: str) -> Optional[dict]:
+    return jwt.encode(payload, secret, algorithm=JWT_ALG)
+
+
+def decode_token(token: str) -> Dict[str, Any]:
+    secret = _require_secret()
     try:
-        return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
-    except jwt.PyJWTError:
-        return None
+        return jwt.decode(token, secret, algorithms=[JWT_ALG])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Invalid token")
