@@ -28,3 +28,6 @@ sendgrid>=6.10.0,<7.0
 
 # （可選）環境變數管理
 python-dotenv>=1.0.0,<2.0
+
+PyJWT[crypto]==2.9.0
+
