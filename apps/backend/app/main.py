@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import io
 import csv
 import random
@@ -286,3 +287,24 @@ def get_quiz(
         },
         media_type="application/json; charset=utf-8",
     )
+
+
+# ✅ 確保 /apps/backend 係 Python import root，令 `import models`, `import database` 一定成功
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if BASE_DIR not in sys.path:
+    sys.path.insert(0, BASE_DIR)
+
+from fastapi import FastAPI
+
+from auth import auth_router  # apps/backend/auth
+from app.routers.report import router as report_router  # apps/backend/app/routers/report.py
+
+app = FastAPI(title="study-game-backend")
+
+app.include_router(auth_router)
+app.include_router(report_router)
+
+@app.get("/health")
+def health():
+    return {"ok": True}
+
