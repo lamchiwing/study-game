@@ -1,3 +1,5 @@
+# apps/backend/requirements.txt
+
 fastapi>=0.111.0,<1.0
 uvicorn[standard]>=0.30.0,<0.31
 
@@ -9,7 +11,11 @@ SQLAlchemy>=2.0,<3.0
 psycopg[binary]>=3.1,<4.0
 
 stripe>=10.0.0,<11.0
+
+# SendGrid SDK 可留可走（如果你用 requests 直打 API，就唔需要）
 sendgrid>=6.10.0,<7.0
+
 python-dotenv>=1.0.0,<2.0
 
-PyJWT>=2.9.0,<3.0
+# ✅ 重點：jwt module 係 PyJWT 提供
+PyJWT==2.9.0
