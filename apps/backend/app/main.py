@@ -2,62 +2,59 @@
 from __future__ import annotations
 
 import os
-import sys
 import io
 import csv
 import random
 import re
 from typing import Optional, List, Dict, Any
 
-try:
-    import boto3
-except ModuleNotFoundError:
-    boto3 = None  # allow app to boot without boto3
-
-from botocore.config import Config
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
-from database import get_db
 
+# routers（app package 內）
 from .routers.report import router as report_router
 from .billing_stripe import router as billing_router
 
-# ✅ 從 sibling package "auth" import
+# sibling package（apps/backend/auth）
 from auth import auth_router
 
+# entitlements 可能未準備好 → 容錯
 try:
-  from .entitlements import router as entitlements_router
+    from .entitlements import router as entitlements_router
 except Exception:
-  entitlements_router = None
-
+    entitlements_router = None
 
 app = FastAPI(
-  title="Study Game API",
-  version=os.getenv("APP_VERSION", "0.1.0"),
+    title="Study Game API",
+    version=os.getenv("APP_VERSION", "0.1.0"),
 )
 
+# =========================
+# CORS
+# =========================
 app.add_middleware(
-  CORSMiddleware,
-  allow_origins=[
-    "https://mypenisblue.com",
-    "https://www.mypenisblue.com",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-  ],
-  allow_credentials=True,
-  allow_methods=["*"],
-  allow_headers=["*"],
+    CORSMiddleware,
+    allow_origins=[
+        "https://mypenisblue.com",
+        "https://www.mypenisblue.com",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# 👇 統一用 /api prefix
+# =========================
+# Routers (/api prefix)
+# =========================
 app.include_router(report_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
 
-if entitlements_router :
-  app.include_router(entitlements_router, prefix="/api")
-
+if entitlements_router:
+    app.include_router(entitlements_router, prefix="/api")
 
 # =========================================================
 # Health / Version
@@ -78,8 +75,15 @@ def version():
 
 
 # =========================================================
-# S3: packs / quiz / upload
+# S3 / R2 helpers (LAZY init)
 # =========================================================
+PREFIX = "packs/"
+_slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
+
+_s3_client = None
+_s3_bucket = None
+
+
 def need(name: str) -> str:
     v = os.getenv(name)
     if not v:
@@ -87,23 +91,43 @@ def need(name: str) -> str:
     return v
 
 
-S3_BUCKET = need("S3_BUCKET")
-S3_ACCESS_KEY = need("S3_ACCESS_KEY")
-S3_SECRET_KEY = need("S3_SECRET_KEY")
+def get_s3():
+    """
+    Lazy init S3 client.
+    Only called when /upload, /packs, /quiz endpoints are hit.
+    This prevents the whole app from crashing on boot if boto3/env not ready yet.
+    """
+    global _s3_client, _s3_bucket
 
-s3 = boto3.client(
-    "s3",
-    endpoint_url=os.getenv("S3_ENDPOINT") or None,
-    aws_access_key_id=S3_ACCESS_KEY,
-    aws_secret_access_key=S3_SECRET_KEY,
-    region_name=os.getenv("S3_REGION", "auto"),
-    config=Config(s3={"addressing_style": "path"}),
-)
-if boto3 is None:
-    raise RuntimeError("boto3 is not installed. Add boto3 to requirements.txt.")
+    if _s3_client is not None and _s3_bucket is not None:
+        return _s3_client, _s3_bucket
 
-PREFIX = "packs/"
-_slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
+    # Import inside to avoid boot-time crash if not installed
+    try:
+        import boto3  # type: ignore
+        from botocore.config import Config  # type: ignore
+    except ModuleNotFoundError:
+        raise RuntimeError("boto3/botocore is not installed. Add boto3 to requirements.txt")
+
+    bucket = need("S3_BUCKET")
+    access_key = need("S3_ACCESS_KEY")
+    secret_key = need("S3_SECRET_KEY")
+
+    endpoint_url = os.getenv("S3_ENDPOINT") or None
+    region = os.getenv("S3_REGION", "auto")
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=endpoint_url,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region,
+        config=Config(s3={"addressing_style": "path"}),
+    )
+
+    _s3_client = client
+    _s3_bucket = bucket
+    return _s3_client, _s3_bucket
 
 
 def validate_slug(slug: str) -> str:
@@ -132,6 +156,8 @@ def smart_decode(b: bytes) -> str:
 @app.post("/upload")
 @app.post("/api/upload")
 async def upload_csv(slug: str, file: UploadFile = File(...)):
+    s3, bucket = get_s3()
+
     # 1️⃣ 驗證 slug，只允許 a-z0-9 / _ -
     slug = validate_slug(slug)
 
@@ -144,12 +170,12 @@ async def upload_csv(slug: str, file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="empty file")
 
     # 4️⃣ 生成 key（維持有 / 的階層）
-    key = f"packs/{slug}.csv"
+    key = f"{PREFIX}{slug}.csv"
 
     # 5️⃣ 上傳 S3 / R2
     try:
         s3.put_object(
-            Bucket=S3_BUCKET,
+            Bucket=bucket,
             Key=key,
             Body=content,
             ContentType="text/csv",
@@ -157,12 +183,10 @@ async def upload_csv(slug: str, file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"S3 put_object failed: {e}")
 
-    # 6️⃣ 回傳實際 key
     return {
         "ok": True,
         "slug": slug,
         "key": key,
-        "url": f"https://{S3_BUCKET}.r2.cloudflarestorage.com/{key}",
         "size": len(content),
     }
 
@@ -170,8 +194,11 @@ async def upload_csv(slug: str, file: UploadFile = File(...)):
 @app.get("/packs")
 @app.get("/api/packs")
 def list_packs():
+    s3, bucket = get_s3()
+
     items: List[Dict[str, Any]] = []
-    kwargs = {"Bucket": S3_BUCKET, "Prefix": PREFIX, "MaxKeys": 1000}
+    kwargs = {"Bucket": bucket, "Prefix": PREFIX, "MaxKeys": 1000}
+
     while True:
         resp = s3.list_objects_v2(**kwargs)
         for obj in resp.get("Contents", []):
@@ -191,10 +218,12 @@ def list_packs():
                     "grade": grade,
                 }
             )
+
         if resp.get("IsTruncated") and resp.get("NextContinuationToken"):
             kwargs["ContinuationToken"] = resp["NextContinuationToken"]
         else:
             break
+
     return items
 
 
@@ -207,6 +236,8 @@ def get_quiz(
     nmax: int = Query(15),
     seed: Optional[str] = Query(None),
 ):
+    s3, bucket = get_s3()
+
     try:
         slug = validate_slug(slug)
     except HTTPException:
@@ -217,13 +248,13 @@ def get_quiz(
 
     key = slug_to_key(slug)
     try:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=key)
+        obj = s3.get_object(Bucket=bucket, Key=key)
     except Exception:
         return JSONResponse(
             {
                 "title": "",
                 "list": [],
-                "usedUrl": f"s3://{S3_BUCKET}/{key}",
+                "usedUrl": f"s3://{bucket}/{key}",
                 "debug": "s3 get_object failed",
             },
             media_type="application/json; charset=utf-8",
@@ -267,6 +298,7 @@ def get_quiz(
 
     total = len(qs)
     picked = 0
+
     if total > 0:
         rnd = random.Random(str(seed)) if seed else random
         if n and n > 0:
@@ -276,6 +308,7 @@ def get_quiz(
             lo = max(1, lo)
             hi = max(lo, hi)
             k = min(rnd.randint(lo, hi), total)
+
         qs_copy = qs[:]
         rnd.shuffle(qs_copy)
         qs = qs_copy[:k]
@@ -288,29 +321,8 @@ def get_quiz(
         {
             "title": pack_title,
             "list": qs,
-            "usedUrl": f"s3://{S3_BUCKET}/{key}",
+            "usedUrl": f"s3://{bucket}/{key}",
             "debug": debug_msg,
         },
         media_type="application/json; charset=utf-8",
     )
-
-
-# ✅ 確保 /apps/backend 係 Python import root，令 `import models`, `import database` 一定成功
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if BASE_DIR not in sys.path:
-    sys.path.insert(0, BASE_DIR)
-
-from fastapi import FastAPI
-
-from auth import auth_router  # apps/backend/auth
-from app.routers.report import router as report_router  # apps/backend/app/routers/report.py
-
-app = FastAPI(title="study-game-backend")
-
-app.include_router(auth_router)
-app.include_router(report_router)
-
-@app.get("/health")
-def health():
-    return {"ok": True}
-
