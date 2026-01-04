@@ -9,7 +9,11 @@ import random
 import re
 from typing import Optional, List, Dict, Any
 
-import boto3
+try:
+    import boto3
+except ModuleNotFoundError:
+    boto3 = None  # allow app to boot without boto3
+
 from botocore.config import Config
 from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
