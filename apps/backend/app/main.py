@@ -99,6 +99,8 @@ s3 = boto3.client(
     region_name=os.getenv("S3_REGION", "auto"),
     config=Config(s3={"addressing_style": "path"}),
 )
+if boto3 is None:
+    raise RuntimeError("boto3 is not installed. Add boto3 to requirements.txt.")
 
 PREFIX = "packs/"
 _slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
