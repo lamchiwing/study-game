@@ -1,4 +1,4 @@
-# apps/backend/app/models.py
+# apps/backend/app/models/models.py
 from __future__ import annotations
 
 from datetime import datetime
@@ -12,11 +12,12 @@ from sqlalchemy import (
     BigInteger,
     func,
     Index,
+    Identity,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 # ✅ 共用同一個 Base（來自 apps/backend/database.py）
-# （因為你用 uvicorn app.main:app，root = apps/backend）
+# Render start: uvicorn app.main:app；root directory = apps/backend
 from database import Base
 
 
@@ -45,16 +46,18 @@ class Customer(Base):
         nullable=False,
     )
 
-    # relationships（可選，但建議加）
+    # relationships（建議：selectin 避免 N+1）
     subscriptions: Mapped[List["Subscription"]] = relationship(
         back_populates="customer",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        lazy="selectin",
     )
     grants: Mapped[List["EntGrant"]] = relationship(
         back_populates="customer",
         cascade="all, delete-orphan",
         passive_deletes=True,
+        lazy="selectin",
     )
 
 
@@ -97,7 +100,10 @@ class Subscription(Base):
         nullable=False,
     )
 
-    customer: Mapped["Customer"] = relationship(back_populates="subscriptions")
+    customer: Mapped["Customer"] = relationship(
+        back_populates="subscriptions",
+        lazy="selectin",
+    )
 
 
 class EntGrant(Base):
@@ -110,10 +116,11 @@ class EntGrant(Base):
     """
     __tablename__ = "ent_grants"
 
+    # ✅ Postgres 上更穩：BigInteger + Identity 自增
     id: Mapped[int] = mapped_column(
         BigInteger,
+        Identity(always=False),
         primary_key=True,
-        autoincrement=True,
     )
 
     user_id: Mapped[str] = mapped_column(
@@ -140,10 +147,13 @@ class EntGrant(Base):
         nullable=True,
     )
 
-    customer: Mapped["Customer"] = relationship(back_populates="grants")
+    customer: Mapped["Customer"] = relationship(
+        back_populates="grants",
+        lazy="selectin",
+    )
 
 
-# ✅ 額外索引（可選，但實際會加快查詢）
+# ✅ 額外索引（可選，但會加快查詢）
 Index("ix_ent_grants_user_plan", EntGrant.user_id, EntGrant.plan)
 Index("ix_ent_grants_user_subject", EntGrant.user_id, EntGrant.subject)
 Index("ix_subscriptions_user_status", Subscription.user_id, Subscription.status)
