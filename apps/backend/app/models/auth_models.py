@@ -7,6 +7,7 @@ from sqlalchemy import String, Integer, Boolean, TIMESTAMP, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
+from app.models import User, LoginCode
 
 
 class User(Base):
