@@ -1,5 +1,6 @@
+# apps/backend/app/models/__init__.py
 from .models import Customer, Subscription, EntGrant
-from .auth_models import User, LoginCode
+from .user_auth_models import User, LoginCode
 
 __all__ = [
     "Customer",
