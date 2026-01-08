@@ -1,12 +1,9 @@
-"""
-app.models package
+# apps/backend/app/models/__init__.py
 
-Expose SQLAlchemy models for stable imports, e.g.
-
-    from app.models import User, LoginCode
-"""
-
+# billing / entitlement 用
 from .models import Customer, Subscription, EntGrant
+
+# auth 用（User / LoginCode）
 from .user_auth_models import User, LoginCode
 
 __all__ = [
