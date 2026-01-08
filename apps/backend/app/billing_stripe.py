@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 # ✅ 從新版 entitlements 匯入資料庫函式
 from .entitlements import add_access, upsert_customer
+from app.models import Customer, Subscription, EntGrant
 
 router = APIRouter(prefix="/api/billing", tags=["billing"])
 
