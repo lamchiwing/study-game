@@ -12,19 +12,29 @@ from fastapi import FastAPI, UploadFile, File, Query, HTTPException
 from fastapi.responses import JSONResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-from botocore.config import Config
-import boto3
-
-from app.routers.report import router as report_router
-from app.billing_stripe import router as billing_router
+# routers
+from .routers.report import router as report_router
+from .billing_stripe import router as billing_router
 from auth import auth_router
 
 try:
-    from app.entitlements import router as entitlements_router
+    from .entitlements import router as entitlements_router
 except Exception:
     entitlements_router = None
 
-app = FastAPI(title="Study Game API", version=os.getenv("APP_VERSION", "0.1.0"))
+# boto3 (optional)
+try:
+    import boto3
+    from botocore.config import Config
+except ModuleNotFoundError:
+    boto3 = None
+    Config = None
+
+
+app = FastAPI(
+    title="Study Game API",
+    version=os.getenv("APP_VERSION", "0.1.0"),
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -39,6 +49,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ✅ 統一 api prefix（router file 內唔要寫 /api）
 app.include_router(report_router, prefix="/api")
 app.include_router(billing_router, prefix="/api")
 app.include_router(auth_router, prefix="/api")
@@ -46,6 +57,9 @@ if entitlements_router:
     app.include_router(entitlements_router, prefix="/api")
 
 
+# =========================================================
+# Health / Version
+# =========================================================
 @app.get("/", response_class=PlainTextResponse)
 def root():
     return "study-game-back OK"
@@ -56,33 +70,16 @@ def health():
     return {"status": "healthy"}
 
 
-def _need(name: str) -> str:
-    v = os.getenv(name)
-    if not v:
-        raise RuntimeError(f"Missing environment variable: {name}")
-    return v
+@app.get("/version")
+def version():
+    return {"version": os.getenv("APP_VERSION", "0.1.0")}
 
 
-def _get_s3_client():
-    # ✅ lazy init：避免一 import main.py 就因 env 未設 crash
-    bucket = _need("S3_BUCKET")
-    access = _need("S3_ACCESS_KEY")
-    secret = _need("S3_SECRET_KEY")
-
-    client = boto3.client(
-        "s3",
-        endpoint_url=os.getenv("S3_ENDPOINT") or None,
-        aws_access_key_id=access,
-        aws_secret_access_key=secret,
-        region_name=os.getenv("S3_REGION", "auto"),
-        config=Config(s3={"addressing_style": "path"}),
-    )
-    return client, bucket
-
-
+# =========================================================
+# S3 (Cloudflare R2) - lazy init (唔會阻止 app boot)
+# =========================================================
 PREFIX = "packs/"
 _slug_re = re.compile(r"^[a-z0-9/_-]+$", re.I)
-
 
 def validate_slug(slug: str) -> str:
     slug = (slug or "").strip().strip("/")
@@ -90,10 +87,8 @@ def validate_slug(slug: str) -> str:
         raise HTTPException(status_code=400, detail="invalid slug")
     return slug
 
-
 def slug_to_key(slug: str) -> str:
     return f"{PREFIX}{slug}.csv"
-
 
 def smart_decode(b: bytes) -> str:
     for enc in ("utf-8-sig", "utf-8", "cp950", "big5", "gb18030"):
@@ -103,28 +98,73 @@ def smart_decode(b: bytes) -> str:
             continue
     return b.decode("utf-8", errors="replace")
 
+def get_s3_client():
+    """
+    ✅ Lazy init：就算你未設定 S3/R2 env，/health 仍然可以起服務
+    """
+    if boto3 is None:
+        raise HTTPException(500, "boto3 not installed")
 
+    bucket = os.getenv("S3_BUCKET")
+    ak = os.getenv("S3_ACCESS_KEY")
+    sk = os.getenv("S3_SECRET_KEY")
+
+    if not bucket or not ak or not sk:
+        raise HTTPException(500, "Missing S3 env vars: S3_BUCKET/S3_ACCESS_KEY/S3_SECRET_KEY")
+
+    endpoint = os.getenv("S3_ENDPOINT") or None
+    region = os.getenv("S3_REGION", "auto")
+
+    s3 = boto3.client(
+        "s3",
+        endpoint_url=endpoint,
+        aws_access_key_id=ak,
+        aws_secret_access_key=sk,
+        region_name=region,
+        config=Config(s3={"addressing_style": "path"}) if Config else None,
+    )
+    return s3, bucket
+
+
+# =========================================================
+# Upload / Packs / Quiz Endpoints
+# =========================================================
 @app.post("/api/upload")
 async def upload_csv(slug: str, file: UploadFile = File(...)):
-    slug = validate_slug(slug).replace(":", "/").replace("\\", "/").strip("/")
+    slug = validate_slug(slug)
+    slug = slug.replace(":", "/").replace("\\", "/").strip("/")
+
     content = await file.read()
     if not content:
         raise HTTPException(status_code=400, detail="empty file")
 
-    s3, bucket = _get_s3_client()
     key = f"packs/{slug}.csv"
 
+    s3, bucket = get_s3_client()
+
     try:
-        s3.put_object(Bucket=bucket, Key=key, Body=content, ContentType="text/csv")
+        s3.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=content,
+            ContentType="text/csv",
+        )
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"S3 put_object failed: {e}")
 
-    return {"ok": True, "slug": slug, "key": key, "size": len(content)}
+    return {
+        "ok": True,
+        "slug": slug,
+        "key": key,
+        "url": f"https://{bucket}.r2.cloudflarestorage.com/{key}",
+        "size": len(content),
+    }
 
 
 @app.get("/api/packs")
 def list_packs():
-    s3, bucket = _get_s3_client()
+    s3, bucket = get_s3_client()
+
     items: List[Dict[str, Any]] = []
     kwargs = {"Bucket": bucket, "Prefix": PREFIX, "MaxKeys": 1000}
     while True:
@@ -133,12 +173,13 @@ def list_packs():
             key = obj["Key"]
             if not key.endswith(".csv"):
                 continue
-            slug = key[len(PREFIX) : -4]
+            slug = key[len(PREFIX):-4]
             parts = slug.split("/")
             title = parts[-1].replace("-", " ").title() if parts else slug
             subject = parts[0] if len(parts) > 0 else ""
             grade = parts[1] if len(parts) > 1 else ""
             items.append({"slug": slug, "title": title, "subject": subject, "grade": grade})
+
         if resp.get("IsTruncated") and resp.get("NextContinuationToken"):
             kwargs["ContinuationToken"] = resp["NextContinuationToken"]
         else:
@@ -154,48 +195,73 @@ def get_quiz(
     nmax: int = Query(15),
     seed: Optional[str] = Query(None),
 ):
-    slug = validate_slug(slug)
-    s3, bucket = _get_s3_client()
+    try:
+        slug = validate_slug(slug)
+    except HTTPException:
+        return JSONResponse({"title": "", "list": []}, media_type="application/json; charset=utf-8")
+
+    s3, bucket = get_s3_client()
     key = slug_to_key(slug)
 
     try:
         obj = s3.get_object(Bucket=bucket, Key=key)
     except Exception:
-        return JSONResponse({"title": "", "list": [], "usedUrl": f"s3://{bucket}/{key}"})
+        return JSONResponse(
+            {"title": "", "list": [], "usedUrl": f"s3://{bucket}/{key}", "debug": "s3 get_object failed"},
+            media_type="application/json; charset=utf-8",
+        )
 
-    text = smart_decode(obj["Body"].read())
+    raw = obj["Body"].read()
+    text = smart_decode(raw)
     rows = list(csv.DictReader(io.StringIO(text)))
+
+    pack_title = ""
+    for r in rows:
+        t = (r.get("title") or r.get("標題") or "").strip()
+        if t:
+            pack_title = t
+            break
 
     qs: List[Dict[str, Any]] = []
     for i, r in enumerate(rows, start=1):
         qs.append(
             {
                 "id": r.get("id") or str(i),
+                "type": r.get("type") or r.get("kind") or "",
                 "question": r.get("question") or r.get("題目") or "",
                 "choiceA": r.get("choiceA") or r.get("A") or "",
                 "choiceB": r.get("choiceB") or r.get("B") or "",
                 "choiceC": r.get("choiceC") or r.get("C") or "",
                 "choiceD": r.get("choiceD") or r.get("D") or "",
                 "answer": r.get("answer") or r.get("答案") or "",
+                "answers": r.get("answers") or "",
                 "explain": r.get("explain") or r.get("解析") or "",
+                "image": r.get("image") or "",
+                "pairs": r.get("pairs") or r.get("Pairs") or "",
+                "left": r.get("left") or r.get("Left") or "",
+                "right": r.get("right") or r.get("Right") or "",
+                "answerMap": r.get("answerMap") or r.get("map") or r.get("index") or "",
             }
         )
 
     total = len(qs)
-    rnd = random.Random(str(seed)) if seed else random
-    if total and (n and n > 0):
-        k = min(max(1, n), total)
-    elif total:
-        lo, hi = sorted([nmin, nmax])
-        lo = max(1, lo)
-        hi = max(lo, hi)
-        k = min(rnd.randint(lo, hi), total)
-    else:
-        k = 0
-
-    if total:
+    picked = 0
+    if total > 0:
+        rnd = random.Random(str(seed)) if seed else random
+        if n and n > 0:
+            k = min(max(1, n), total)
+        else:
+            lo, hi = sorted([nmin, nmax])
+            lo = max(1, lo)
+            hi = max(lo, hi)
+            k = min(rnd.randint(lo, hi), total)
         qs_copy = qs[:]
         rnd.shuffle(qs_copy)
         qs = qs_copy[:k]
+        picked = len(qs)
 
-    return JSONResponse({"title": slug, "list": qs, "usedUrl": f"s3://{bucket}/{key}"})
+    debug_msg = f"rows={total}, picked={picked}" + (f", seed={seed}" if seed else "")
+    return JSONResponse(
+        {"title": pack_title, "list": qs, "usedUrl": f"s3://{bucket}/{key}", "debug": debug_msg},
+        media_type="application/json; charset=utf-8",
+    )
