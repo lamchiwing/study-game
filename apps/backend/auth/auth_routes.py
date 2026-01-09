@@ -9,7 +9,6 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
 from database import get_db
-from app.models import User, LoginCode
 from mailer_sendgrid import send_email
 from .auth_utils import create_access_token
 
