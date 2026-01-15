@@ -3,7 +3,7 @@ services:
     name: study-game-front
     env: static
     rootDir: apps/frontend
-    buildCommand: npm ci && npm run build
+    buildCommand: npm install && npm run build
     staticPublishPath: apps/frontend/dist
     routes:
       - type: rewrite
