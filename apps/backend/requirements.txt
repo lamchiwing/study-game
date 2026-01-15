@@ -22,6 +22,7 @@ stripe>=10.0.0,<11.0
 
 # Email (optional)
 sendgrid>=6.10.0,<7.0
+email-validator>=2.0.0
 
 # Env
 python-dotenv>=1.0.0,<2.0
