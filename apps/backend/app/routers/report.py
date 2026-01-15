@@ -18,7 +18,7 @@ except Exception:
 
 # === 匯入內部工具 ===
 from ..entitlements import has_access, current_plan
-from ..mailer_sendgrid import send_report_email
+from mailer_sendgrid import send_report_email
 
 router = APIRouter(prefix="/report", tags=["report"])
 

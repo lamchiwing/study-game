@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 
+from app.models.user_auth_models import User, LoginCode
 from database import get_db
 from mailer_sendgrid import send_email
 from .auth_utils import create_access_token

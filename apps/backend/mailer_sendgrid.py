@@ -30,3 +30,15 @@ def send_email(to: str, subject: str, html: str) -> None:
     r = requests.post(url, json=payload, headers=headers, timeout=15)
     if r.status_code >= 400:
         raise RuntimeError(f"SendGrid error {r.status_code}: {r.text}")
+
+
+def send_report_email(to_email: str, subject: str, html: str):
+    """Compatibility wrapper used by report router.
+
+    Returns (ok: bool, message: str) instead of raising.
+    """
+    try:
+        send_email(to=to_email, subject=subject, html=html)
+        return True, ""
+    except Exception as e:
+        return False, str(e)

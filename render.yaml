@@ -4,7 +4,7 @@ services:
     env: static
     rootDir: apps/frontend
     buildCommand: npm ci && npm run build
-    staticPublishPath: dist
+    staticPublishPath: apps/frontend/dist
     routes:
       - type: rewrite
         source: /*

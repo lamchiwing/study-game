@@ -2,48 +2,53 @@
 from __future__ import annotations
 
 import os
-from typing import Generator
+from typing import Generator, Optional
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Session
 
-# 例：postgresql+psycopg://user:pass@host:5432/dbname
-DATABASE_URL = os.getenv("DATABASE_URL")
-if not DATABASE_URL:
-    raise RuntimeError("Missing DATABASE_URL environment variable")
+# NOTE:
+# - Do NOT crash at import-time if DATABASE_URL is missing.
+# - In production, you should set DATABASE_URL.
+# - In local/dev, missing DATABASE_URL will raise only when you actually open a DB session.
 
-# 建立 Engine（prod 建議唔開 echo，避免太多 SQL log）
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    future=True,
-)
-
-# Session factory
-SessionLocal = sessionmaker(
-    bind=engine,
-    autocommit=False,
-    autoflush=False,
-    future=True,
-)
+DATABASE_URL: Optional[str] = os.getenv("DATABASE_URL")
 
 
 class Base(DeclarativeBase):
-    """所有 ORM model 都要繼承呢個 Base"""
     pass
 
 
-def get_db() -> Generator[Session, None, None]:
-    """
-    FastAPI 依賴注入用：
-        from sqlalchemy.orm import Session
-        from fastapi import Depends
+_engine = None
+_SessionLocal = None
 
-        @router.get("/x")
-        def handler(db: Session = Depends(get_db)):
-            ...
-    """
-    db: Session = SessionLocal()
+
+def _get_engine():
+    global _engine
+    if _engine is not None:
+        return _engine
+
+    url = (os.getenv("DATABASE_URL") or DATABASE_URL or "").strip()
+    if not url:
+        raise RuntimeError("Missing DATABASE_URL environment variable")
+
+    # Create engine lazily
+    _engine = create_engine(url, pool_pre_ping=True)
+    return _engine
+
+
+def SessionLocal() -> Session:
+    """Return a new SQLAlchemy Session (lazy-init engine)."""
+    global _SessionLocal
+    if _SessionLocal is None:
+        engine = _get_engine()
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return _SessionLocal()
+
+
+def get_db() -> Generator[Session, None, None]:
+    """FastAPI dependency"""
+    db = SessionLocal()
     try:
         yield db
     finally:
