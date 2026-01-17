@@ -1,16 +1,19 @@
-// apps/frontend/src/main.tsx
-import "./index.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 import App from "./App";
+import "./index.css";
 
-// 👇 新增：AuthProvider
-import { AuthProvider } from "./hooks/useAuth";
+const root = document.getElementById("root");
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
+if (!root) {
+  throw new Error("Root element not found");
+}
+
+ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <AuthProvider>
+    <BrowserRouter>
       <App />
-    </AuthProvider>
+    </BrowserRouter>
   </React.StrictMode>
 );
