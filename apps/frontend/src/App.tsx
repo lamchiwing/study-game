@@ -1,4 +1,5 @@
-// apps/frontend/src/App.tsx
+%%bash
+cat <<'EOF' > apps/frontend/src/App.tsx
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import Navbar from "./components/Navbar";
@@ -19,3 +20,4 @@ export default function App() {
     </div>
   );
 }
+EOF
